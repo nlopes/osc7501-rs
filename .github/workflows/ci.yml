@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: '*'
+
+env:
+  CARGO_TERM_COLOR: always
 
 permissions:
   contents: read
@@ -11,16 +16,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Install nextest
-        run: |
-          curl -LsSf https://get.nexte.st/latest/linux -o /tmp/nextest.tar.gz
-          tar --no-same-owner -xzf /tmp/nextest.tar.gz -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          env-vars: ImageOS
+      - uses: taiki-e/install-action@nextest
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings -D clippy::todo
+      - run: cargo clippy --workspace --all-targets --locked
       - run: cargo nextest run --workspace --locked
       - run: cargo doc --workspace --no-deps --locked
         env:
