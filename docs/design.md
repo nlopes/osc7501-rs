@@ -16,6 +16,11 @@ namespace. Code that only parses reports can depend on `osc7501-parser` directly
 
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
+`Report` and `Capabilities` are constructed by parsing. Their fields are
+read-only outside the parser crate. Report getters preserve the parser's
+validation guarantees, including the states that allow `kind` and `progress`.
+Each report replaces the record without checking its previous state. Applications
+can enforce their own workflow rules.
 `Action::Clear` prevents confusing subtree deletion with a stored state.
 `RecordId::new`, `AppId::new`, and `Progress::new` return `Result` without
 allocating. Invalid inputs return `Error::InvalidRecordId`, `Error::InvalidAppId`,

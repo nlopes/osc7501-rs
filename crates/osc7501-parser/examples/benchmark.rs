@@ -59,7 +59,7 @@ fn main() -> BenchmarkResult {
                 };
                 black_box(
                     report
-                        .message
+                        .message()
                         .ok_or("missing message")?
                         .decode_into(&mut output)?,
                 );

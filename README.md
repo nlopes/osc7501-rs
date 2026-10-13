@@ -62,7 +62,7 @@ use osc7501::parser::{Event, parse_sequence};
 let input = b"\x1b]7501;state=done:app=cargo:msg=T0s=\x1b\\";
 if let Some(Event::Report(report)) = parse_sequence(input).expect("valid frame") {
     let mut storage = [0_u8; 2048];
-    let message = report.message.expect("message present")
+    let message = report.message().expect("message present")
         .decode_into(&mut storage).expect("enough space");
     assert_eq!(message, "OK");
 }

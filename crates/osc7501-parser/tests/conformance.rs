@@ -4,8 +4,8 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
 };
 use osc7501_parser::{
-    Action, AppId, Capabilities, Decoder, Error, Event, Kind, Limit, MAX_MESSAGE, Progress,
-    RecordId, Report, State, parse_body, parse_sequence,
+    Action, AppId, Decoder, Error, Event, Kind, Limit, MAX_MESSAGE, Progress, RecordId, Report,
+    State, parse_body, parse_sequence,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -27,9 +27,9 @@ fn recognizes_all_states_and_clear() -> TestResult {
         State::Error,
     ] {
         let body = format!("state={}", state.as_str());
-        assert_eq!(report(body.as_bytes())?.action, Action::Set(state));
+        assert_eq!(report(body.as_bytes())?.action(), Action::Set(state));
     }
-    assert_eq!(report(b"state=clear")?.action, Action::Clear);
+    assert_eq!(report(b"state=clear")?.action(), Action::Clear);
     Ok(())
 }
 
@@ -37,7 +37,7 @@ fn recognizes_all_states_and_clear() -> TestResult {
 fn recognizes_all_blocking_reasons() -> TestResult {
     for kind in [Kind::Permission, Kind::Question, Kind::Auth] {
         let body = format!("state=blocked:kind={}", kind.as_str());
-        assert_eq!(report(body.as_bytes())?.kind, Some(kind));
+        assert_eq!(report(body.as_bytes())?.kind(), Some(kind));
     }
     Ok(())
 }
@@ -79,13 +79,16 @@ fn missing_and_unknown_states_are_ignored() {
 #[test]
 fn last_syntactically_valid_pair_wins() -> TestResult {
     let value = report(b"state=done:state=blocked:progress=25:progress=80:app=cargo:app=rustc:kind=auth:kind=question")?;
-    assert_eq!(value.action, Action::Set(State::Blocked));
-    assert_eq!(value.progress.ok_or("missing progress")?.get(), 80);
-    assert_eq!(value.app.ok_or("missing application id")?.as_str(), "rustc");
-    assert_eq!(value.kind, Some(Kind::Question));
+    assert_eq!(value.action(), Action::Set(State::Blocked));
+    assert_eq!(value.progress().ok_or("missing progress")?.get(), 80);
+    assert_eq!(
+        value.app().ok_or("missing application id")?.as_str(),
+        "rustc"
+    );
+    assert_eq!(value.kind(), Some(Kind::Question));
     assert_eq!(parse_body(b"state=idle:state=future"), Ok(None));
     assert_eq!(
-        report(b"state=idle:state=bad!")?.action,
+        report(b"state=idle:state=bad!")?.action(),
         Action::Set(State::Idle)
     );
     Ok(())
@@ -94,19 +97,25 @@ fn last_syntactically_valid_pair_wins() -> TestResult {
 #[test]
 fn malformed_pairs_do_not_stop_valid_pairs() -> TestResult {
     let value = report(b"broken:=empty:STATE=error:state=working:bad=has space:progress=40:msg=bad!value:app=cargo")?;
-    assert_eq!(value.action, Action::Set(State::Working));
-    assert_eq!(value.progress.ok_or("missing progress")?.get(), 40);
-    assert!(value.message.is_none());
-    assert_eq!(value.app.ok_or("missing application id")?.as_str(), "cargo");
+    assert_eq!(value.action(), Action::Set(State::Working));
+    assert_eq!(value.progress().ok_or("missing progress")?.get(), 40);
+    assert!(value.message().is_none());
+    assert_eq!(
+        value.app().ok_or("missing application id")?.as_str(),
+        "cargo"
+    );
     Ok(())
 }
 
 #[test]
 fn trims_ascii_whitespace_around_keys_and_values() -> TestResult {
     let value = report(b" \tstate \r= working \n: progress = 42 : app = cargo ")?;
-    assert_eq!(value.action, Action::Set(State::Working));
-    assert_eq!(value.progress.ok_or("missing progress")?.get(), 42);
-    assert_eq!(value.app.ok_or("missing application id")?.as_str(), "cargo");
+    assert_eq!(value.action(), Action::Set(State::Working));
+    assert_eq!(value.progress().ok_or("missing progress")?.get(), 42);
+    assert_eq!(
+        value.app().ok_or("missing application id")?.as_str(),
+        "cargo"
+    );
     Ok(())
 }
 
@@ -116,7 +125,7 @@ fn unknown_keys_are_ignored_and_equals_is_part_of_value() -> TestResult {
     let mut output = [0; 2];
     assert_eq!(
         value
-            .message
+            .message()
             .ok_or("missing message")?
             .decode_into(&mut output)?,
         "OK"
@@ -129,10 +138,10 @@ fn enforces_state_specific_fields() -> TestResult {
     for state in ["idle", "done", "error", "clear"] {
         let body = format!("state={state}:kind=permission:progress=20");
         let value = report(body.as_bytes())?;
-        assert!(value.kind.is_none());
-        assert!(value.progress.is_none());
+        assert!(value.kind().is_none());
+        assert!(value.progress().is_none());
     }
-    assert!(report(b"state=working:kind=auth")?.kind.is_none());
+    assert!(report(b"state=working:kind=auth")?.kind().is_none());
     Ok(())
 }
 
@@ -140,15 +149,15 @@ fn enforces_state_specific_fields() -> TestResult {
 fn progress_is_optional_and_strictly_bounded() -> TestResult {
     for value in ["0", "100", "00040"] {
         let body = format!("state=working:progress={value}");
-        assert!(report(body.as_bytes())?.progress.is_some());
+        assert!(report(body.as_bytes())?.progress().is_some());
     }
     for value in ["", "101", "-1", "+1", "1.5", "2a", "999999999999"] {
         let body = format!("state=working:progress={value}");
-        assert!(report(body.as_bytes())?.progress.is_none());
+        assert!(report(body.as_bytes())?.progress().is_none());
         let body = format!("state=working:progress=40:progress={value}");
-        assert!(report(body.as_bytes())?.progress.is_none());
+        assert!(report(body.as_bytes())?.progress().is_none());
     }
-    assert!(report(b"state=blocked")?.progress.is_none());
+    assert!(report(b"state=blocked")?.progress().is_none());
     assert_eq!(Progress::new(101), Err(Error::InvalidProgress));
     Ok(())
 }
@@ -156,11 +165,11 @@ fn progress_is_optional_and_strictly_bounded() -> TestResult {
 #[test]
 fn unknown_kinds_and_invalid_apps_are_absent() -> TestResult {
     let value = report(b"state=blocked:kind=future:app=cargo/tool")?;
-    assert!(value.kind.is_none());
-    assert!(value.app.is_none());
+    assert!(value.kind().is_none());
+    assert!(value.app().is_none());
     for app in ["", "cargo/tool", "cargo,tool", "cargo=tool"] {
         let body = format!("state=working:app=cargo:app={app}");
-        assert!(report(body.as_bytes())?.app.is_none());
+        assert!(report(body.as_bytes())?.app().is_none());
     }
     assert_eq!(AppId::new(""), Err(Error::InvalidAppId));
     assert_eq!(AppId::new("not an id"), Err(Error::InvalidAppId));
@@ -188,12 +197,12 @@ fn invalid_id_never_falls_back_to_root() -> TestResult {
     }
     assert_eq!(
         report(b"state=done:id=build/test")?
-            .id
+            .id()
             .ok_or("missing record id")?
             .as_str(),
         "build/test"
     );
-    assert!(report(b"state=done")?.id.is_none());
+    assert!(report(b"state=done")?.id().is_none());
     Ok(())
 }
 
@@ -202,12 +211,12 @@ fn identity_is_borrowed_and_a_later_update_has_no_retained_fields() -> TestResul
     let bytes = b"state=working:id=build/test:app=cargo";
     let value = report(bytes)?;
     assert_eq!(
-        value.id.ok_or("missing record id")?.as_str().as_ptr(),
+        value.id().ok_or("missing record id")?.as_str().as_ptr(),
         bytes[17..].as_ptr()
     );
     let next = report(b"state=done:id=build/test")?;
-    assert!(next.app.is_none());
-    assert!(next.message.is_none());
+    assert!(next.app().is_none());
+    assert!(next.message().is_none());
     Ok(())
 }
 
@@ -225,7 +234,9 @@ fn text_round_trips_unicode_and_optional_padding() -> TestResult {
         for engine in [&STANDARD, &STANDARD_NO_PAD] {
             let encoded = engine.encode(text);
             let body = format!("state=done:msg={encoded}");
-            let value = report(body.as_bytes())?.message.ok_or("missing message")?;
+            let value = report(body.as_bytes())?
+                .message()
+                .ok_or("missing message")?;
             let mut output = [0; MAX_MESSAGE];
             assert_eq!(value.decoded_len(), text.len());
             assert_eq!(value.decode_into(&mut output)?, text);
@@ -289,7 +300,7 @@ fn invalid_overridden_text_discards_entire_report() {
 #[test]
 fn last_valid_text_wins_and_empty_text_is_present() -> TestResult {
     let value = report(b"state=done:msg=T0s=:msg=")?
-        .message
+        .message()
         .ok_or("missing message")?;
     assert_eq!(value.decoded_len(), 0);
     assert_eq!(value.decode_into(&mut [])?, "");
@@ -303,7 +314,7 @@ fn parsing_and_decoding_share_one_error_type() -> TestResult {
             return Ok(None);
         };
         report
-            .message
+            .message()
             .map(|text| text.decode_into(output))
             .transpose()
     }
@@ -326,7 +337,7 @@ fn parsing_and_decoding_share_one_error_type() -> TestResult {
 #[test]
 fn decoding_requires_only_exact_destination_capacity() -> TestResult {
     let value = report(b"state=done:msg=T0s=")?
-        .message
+        .message()
         .ok_or("missing message")?;
     assert_eq!(value.decode_into(&mut [0; 1]), Err(Error::BufferTooSmall));
     assert_eq!(value.decode_into(&mut [0; 2])?, "OK");
@@ -343,8 +354,11 @@ fn accepts_text_at_both_decoded_limits() -> TestResult {
         STANDARD.encode(&message)
     );
     let value = report(body.as_bytes())?;
-    assert_eq!(value.title.ok_or("missing title")?.decoded_len(), 192);
-    assert_eq!(value.message.ok_or("missing message")?.decoded_len(), 2048);
+    assert_eq!(value.title().ok_or("missing title")?.decoded_len(), 192);
+    assert_eq!(
+        value.message().ok_or("missing message")?.decoded_len(),
+        2048
+    );
     Ok(())
 }
 
@@ -424,14 +438,14 @@ fn complete_sequence_limit_counts_prefix_and_each_terminator() -> TestResult {
 }
 
 #[test]
-fn query_and_default_reply_are_identical_on_wire() {
+fn query_and_default_capabilities() -> TestResult {
     assert_eq!(parse_body(b"?"), Ok(Some(Event::Query)));
-    let defaults = Capabilities {
-        states: None,
-        kinds: None,
+    let Some(Event::Capabilities(defaults)) = parse_body(b"?:")? else {
+        return Err("expected capabilities".into());
     };
     assert!(defaults.supports_state(State::Blocked));
     assert!(defaults.supports_kind(Kind::Auth));
+    Ok(())
 }
 
 #[test]
@@ -488,6 +502,34 @@ fn streaming_works_across_every_two_chunk_split() -> TestResult {
 }
 
 #[test]
+fn streaming_accepts_retries_and_reused_record_ids() -> TestResult {
+    let mut decoder = Decoder::new();
+    let mut actions = Vec::new();
+    let id = RecordId::new("build/test")?;
+    let mut result: TestResult = Ok(());
+    let frames = b"\x1b]7501;state=error:id=build/test\x1b\\\x1b]7501;state=working:id=build/test\x1b\\\x1b]7501;state=done:id=build/test\x1b\\\x1b]7501;state=working:id=build/test\x1b\\";
+    decoder.feed(frames, |event| match event {
+        Ok(Event::Report(value)) => {
+            assert_eq!(value.id(), Some(id));
+            actions.push(value.action());
+        }
+        Ok(_) => result = Err("unexpected event".into()),
+        Err(error) => result = Err(error.into()),
+    });
+    result?;
+    assert_eq!(
+        actions,
+        [
+            Action::Set(State::Error),
+            Action::Set(State::Working),
+            Action::Set(State::Done),
+            Action::Set(State::Working),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn streaming_works_bytewise_and_skips_other_oscs() -> TestResult {
     let mut decoder = Decoder::new();
     let mut states = Vec::new();
@@ -496,7 +538,7 @@ fn streaming_works_bytewise_and_skips_other_oscs() -> TestResult {
     for byte in bytes {
         decoder.feed(&[*byte], |event| match event {
             Ok(Event::Report(value)) => {
-                states.push(value.action);
+                states.push(value.action());
             }
             Ok(_) => {}
             Err(error) => result = Err(error),
@@ -527,7 +569,7 @@ fn streaming_drains_oversized_frames_and_recovers() -> TestResult {
                 errors += 1;
             }
             Ok(Event::Report(value)) => {
-                assert_eq!(value.action, Action::Set(State::Done));
+                assert_eq!(value.action(), Action::Set(State::Done));
                 reports += 1;
             }
             Ok(_) => result = Err("unexpected event"),
@@ -579,7 +621,7 @@ fn independent_oracle_for_every_message_length() -> TestResult {
             let body = format!("state=done:msg={}", engine.encode(&text));
             assert_eq!(
                 report(body.as_bytes())?
-                    .message
+                    .message()
                     .ok_or("missing message")?
                     .decode_into(&mut output)?,
                 text
@@ -629,7 +671,7 @@ fn maximum_reports_streaming_and_text_decoding_allocate_zero_bytes() -> TestResu
                 let value = report(std::hint::black_box(body.as_bytes()))?;
                 std::hint::black_box(
                     value
-                        .message
+                        .message()
                         .ok_or("missing message")?
                         .decode_into(&mut output)?,
                 );
@@ -662,7 +704,7 @@ fn malformed_identifiable_id_is_never_treated_as_absent() -> TestResult {
     assert_eq!(parse_body(b"state=clear:id=\xff"), Ok(None));
     assert_eq!(
         report(b"state=clear:id=bad!:id=good")?
-            .id
+            .id()
             .ok_or("missing record id")?
             .as_str(),
         "good"

@@ -241,31 +241,111 @@ impl<'a> EncodedText<'a> {
 }
 
 /// A validated report. Missing fields remove the prior record's fields.
+///
+/// Read fields through the getters. Reports can only be constructed by parsing.
+///
+/// ```compile_fail,E0451
+/// use osc7501_parser::{Action, Report, State};
+///
+/// let report = Report {
+///     action: Action::Set(State::Idle),
+///     id: None,
+///     kind: None,
+///     progress: None,
+///     app: None,
+///     title: None,
+///     message: None,
+/// };
+/// ```
+///
+/// Callers cannot change fields after validation.
+///
+/// ```compile_fail,E0616
+/// use osc7501_parser::{Action, Report, State};
+///
+/// fn change_action(report: &mut Report<'_>) {
+///     report.action = Action::Set(State::Idle);
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Report<'a> {
+    pub(crate) action: Action,
+    pub(crate) id: Option<RecordId<'a>>,
+    pub(crate) kind: Option<Kind>,
+    pub(crate) progress: Option<Progress>,
+    pub(crate) app: Option<AppId<'a>>,
+    pub(crate) title: Option<EncodedText<'a>>,
+    pub(crate) message: Option<EncodedText<'a>>,
+}
+
+impl<'a> Report<'a> {
     /// Complete replacement or subtree clear.
-    pub action: Action,
+    #[must_use]
+    pub const fn action(&self) -> Action {
+        self.action
+    }
+
     /// Addressed record; `None` means root.
-    pub id: Option<RecordId<'a>>,
+    #[must_use]
+    pub const fn id(&self) -> Option<RecordId<'a>> {
+        self.id
+    }
+
     /// Present only for `blocked`.
-    pub kind: Option<Kind>,
+    #[must_use]
+    pub const fn kind(&self) -> Option<Kind> {
+        self.kind
+    }
+
     /// Present only for `working` or `blocked`; absent means indeterminate.
-    pub progress: Option<Progress>,
+    #[must_use]
+    pub const fn progress(&self) -> Option<Progress> {
+        self.progress
+    }
+
     /// Explicit application identifier, before ancestor inheritance.
-    pub app: Option<AppId<'a>>,
+    #[must_use]
+    pub const fn app(&self) -> Option<AppId<'a>> {
+        self.app
+    }
+
     /// Validated, lazily decoded label.
-    pub title: Option<EncodedText<'a>>,
+    #[must_use]
+    pub const fn title(&self) -> Option<EncodedText<'a>> {
+        self.title
+    }
+
     /// Validated, lazily decoded status message.
-    pub message: Option<EncodedText<'a>>,
+    #[must_use]
+    pub const fn message(&self) -> Option<EncodedText<'a>> {
+        self.message
+    }
 }
 
 /// Feature detection reply. Explicit lists retain future, unknown tokens.
+///
+/// Missing lists use the revision 0.4 defaults.
+/// Capabilities can only be constructed by parsing.
+///
+/// ```compile_fail,E0451
+/// use osc7501_parser::Capabilities;
+///
+/// let capabilities = Capabilities { states: None, kinds: None };
+/// ```
+///
+/// Callers cannot change the advertised lists.
+///
+/// ```compile_fail,E0616
+/// use osc7501_parser::Capabilities;
+///
+/// fn change_states(capabilities: &mut Capabilities<'_>) {
+///     capabilities.states = Some("working");
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capabilities<'a> {
-    /// Raw advertised list; absence means the fixed revision 0.4 defaults.
-    pub states: Option<&'a str>,
-    /// Raw advertised blocking reasons; absence means the fixed defaults.
-    pub kinds: Option<&'a str>,
+    pub(crate) states: Option<&'a str>,
+    pub(crate) kinds: Option<&'a str>,
 }
 
 impl Capabilities<'_> {

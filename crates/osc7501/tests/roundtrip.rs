@@ -32,20 +32,20 @@ fn emitter_round_trips_every_state() -> TestResult {
         let Some(Event::Report(value)) = parse_sequence(&output)? else {
             return Err("expected report".into());
         };
-        assert_eq!(value.action, Action::Set(state));
-        assert_eq!(value.id, Some(id));
-        assert_eq!(value.app, Some(app));
+        assert_eq!(value.action(), Action::Set(state));
+        assert_eq!(value.id(), Some(id));
+        assert_eq!(value.app(), Some(app));
         let mut decoded = [0; MAX_MESSAGE];
         assert_eq!(
             value
-                .message
+                .message()
                 .ok_or("missing message")?
                 .decode_into(&mut decoded)?,
             "España"
         );
         assert_eq!(
             value
-                .title
+                .title()
                 .ok_or("missing title")?
                 .decode_into(&mut decoded)?,
             "Test 🦀"
@@ -64,8 +64,8 @@ fn emitter_round_trips_blocking_reason_and_progress() -> TestResult {
     let Some(Event::Report(value)) = parse_sequence(&output)? else {
         return Err("expected report".into());
     };
-    assert_eq!(value.kind, Some(Kind::Permission));
-    assert_eq!(value.progress.ok_or("missing progress")?.get(), 100);
+    assert_eq!(value.kind(), Some(Kind::Permission));
+    assert_eq!(value.progress().ok_or("missing progress")?.get(), 100);
     Ok(())
 }
 
@@ -81,8 +81,8 @@ fn root_clear_and_subtree_clear_round_trip() -> TestResult {
         let Some(Event::Report(value)) = parse_sequence(&output)? else {
             return Err("expected report".into());
         };
-        assert_eq!(value.action, Action::Clear);
-        assert_eq!(value.id, id);
+        assert_eq!(value.action(), Action::Clear);
+        assert_eq!(value.id(), id);
     }
     Ok(())
 }
@@ -164,8 +164,11 @@ fn maximum_legal_producer_report_fits_and_round_trips() -> TestResult {
     let Some(Event::Report(value)) = parse_sequence(&frame[..length])? else {
         return Err("expected report".into());
     };
-    assert_eq!(value.message.ok_or("missing message")?.decoded_len(), 2048);
-    assert_eq!(value.title.ok_or("missing title")?.decoded_len(), 192);
+    assert_eq!(
+        value.message().ok_or("missing message")?.decoded_len(),
+        2048
+    );
+    assert_eq!(value.title().ok_or("missing title")?.decoded_len(), 192);
     Ok(())
 }
 
@@ -269,7 +272,7 @@ fn constructor_errors_propagate_without_allocating_or_writing() -> TestResult {
     let Some(Event::Report(report)) = parse_sequence(&output)? else {
         return Err("expected report".into());
     };
-    assert_eq!(report.progress.ok_or("missing progress")?.get(), 40);
+    assert_eq!(report.progress().ok_or("missing progress")?.get(), 40);
     Ok(())
 }
 
