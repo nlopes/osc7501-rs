@@ -1,6 +1,9 @@
 //! Producer-to-parser conformance and validation before writes.
-use osc7501::{AppId, Error, Kind, Progress, RecordId, State, Status, write_query};
-use osc7501_parser::{Action, Event, MAX_MESSAGE, parse_sequence};
+use osc7501::{
+    AppId, Error, Kind, Progress, RecordId, State, Status,
+    parser::{self, Action, Event, MAX_MESSAGE, parse_sequence},
+    write_query,
+};
 use std::{
     error::Error as _,
     io::{self, Write},
@@ -242,14 +245,9 @@ fn constructor_errors_propagate_without_allocating_or_writing() -> TestResult {
 
     let mut output = Vec::new();
     for (app, id, progress, expected) in [
-        ("", "build/test", 40, osc7501_parser::Error::InvalidAppId),
-        ("example", "", 40, osc7501_parser::Error::InvalidRecordId),
-        (
-            "example",
-            "build/test",
-            101,
-            osc7501_parser::Error::InvalidProgress,
-        ),
+        ("", "build/test", 40, parser::Error::InvalidAppId),
+        ("example", "", 40, parser::Error::InvalidRecordId),
+        ("example", "build/test", 101, parser::Error::InvalidProgress),
     ] {
         let mut result = Ok(());
         let info = allocation_counter::measure(|| result = emit(&mut output, app, id, progress));
@@ -260,7 +258,7 @@ fn constructor_errors_propagate_without_allocating_or_writing() -> TestResult {
             error
                 .source()
                 .ok_or("missing constructor error source")?
-                .downcast_ref::<osc7501_parser::Error>(),
+                .downcast_ref::<parser::Error>(),
             Some(&expected)
         );
         assert_eq!(info.count_total, 0);

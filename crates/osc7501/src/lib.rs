@@ -11,10 +11,11 @@ use std::io::{self, Write};
 
 use constants::ALPHABET;
 
-pub use osc7501_parser::{
-    Action, AppId, Capabilities, Decoder, Event, Kind, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE,
-    Progress, RecordId, State,
-};
+/// Parse status reports and terminal capability replies.
+pub use osc7501_parser as parser;
+pub use parser::{AppId, Kind, Progress, RecordId, State};
+
+use parser::{Action, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE};
 
 /// Plain-text report to encode. `None` means absent, not "keep prior value".
 #[derive(Clone, Copy, Debug)]
@@ -184,7 +185,7 @@ fn encode(input: &[u8], output: &mut impl Write) -> io::Result<()> {
 /// Writes an optional feature query without reading input or imposing a timeout.
 /// This function does not flush the writer.
 ///
-/// Route replies through the TUI's existing input reader and [`Decoder`].
+/// Route replies through the TUI's existing input reader and [`parser::Decoder`].
 /// A bare query and a default reply have identical bytes; use stream direction
 /// and a pending-query flag to distinguish them.
 ///
@@ -211,7 +212,7 @@ pub enum Error {
     FrameTooLarge,
     /// A value constructor, parser, or text decoder failed.
     #[error("{0}")]
-    Parser(#[from] osc7501_parser::Error),
+    Parser(#[from] parser::Error),
     /// The caller's output writer failed.
     #[error("{0}")]
     Io(#[from] io::Error),

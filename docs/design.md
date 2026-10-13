@@ -9,6 +9,11 @@ All workspace members live in `crates/`:
 | `osc7501-parser` | Wire parsing, validation, types, capabilities, bounded streaming | `thiserror` without default features; `no_std` |
 | `osc7501` | Borrowed producer builder, bounded encoding, output-writer integration | Local parser and `thiserror` without default features |
 
+`osc7501::parser` exposes the complete parser crate. `AppId`, `RecordId`,
+`Progress`, `State`, and `Kind` are also available at the emission crate's root
+for building reports. Parser-only types, functions, and limits use the `parser`
+namespace. Code that only parses reports can depend on `osc7501-parser` directly.
+
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
 `Action::Clear` prevents confusing subtree deletion with a stored state.

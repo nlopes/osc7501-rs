@@ -53,8 +53,11 @@ Redirected output contains a plain text trace and runs without pauses.
 
 ## Parse reports
 
+Use `osc7501::parser` when you also send reports. For parsing alone, use the
+separate `osc7501-parser` crate.
+
 ```rust
-use osc7501_parser::{Event, parse_sequence};
+use osc7501::parser::{Event, parse_sequence};
 
 let input = b"\x1b]7501;state=done:app=cargo:msg=T0s=\x1b\\";
 if let Some(Event::Report(report)) = parse_sequence(input).expect("valid frame") {
