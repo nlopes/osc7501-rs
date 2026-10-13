@@ -13,7 +13,7 @@ Latest stable Rust, edition 2024. All workspace crates live in `crates/`.
 ```rust
 use osc7501::{AppId, Kind, State, Status};
 
-fn awaiting_approval(output: &mut impl std::io::Write) -> Result<(), osc7501::SendError> {
+fn awaiting_approval(output: &mut impl std::io::Write) -> Result<(), osc7501::Error> {
     let app = AppId::new("my-tui").expect("constant valid app id");
     Status::new(State::Blocked)
         .app(app)

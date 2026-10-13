@@ -1,5 +1,5 @@
 //! Producer-to-parser conformance and validation before writes.
-use osc7501::{AppId, Kind, Progress, RecordId, SendError, State, Status, write_query};
+use osc7501::{AppId, Error, Kind, Progress, RecordId, State, Status, write_query};
 use osc7501_parser::{Action, Event, MAX_MESSAGE, parse_sequence};
 use std::io::{self, Write};
 
@@ -78,7 +78,7 @@ fn invalid_text_is_rejected_before_any_output() {
         let mut output = Vec::new();
         assert!(matches!(
             Status::new(State::Done).message(text).write_to(&mut output),
-            Err(SendError::ControlCharacter)
+            Err(Error::ControlCharacter)
         ));
         assert_eq!(output, [] as [u8; 0]);
     }
@@ -88,13 +88,13 @@ fn invalid_text_is_rejected_before_any_output() {
         Status::new(State::Done)
             .message(&text)
             .write_to(&mut output),
-        Err(SendError::TextTooLong)
+        Err(Error::TextTooLong)
     ));
     assert_eq!(output, [] as [u8; 0]);
     let text = "x".repeat(193);
     assert!(matches!(
         Status::new(State::Done).title(&text).write_to(&mut output),
-        Err(SendError::TextTooLong)
+        Err(Error::TextTooLong)
     ));
     assert_eq!(output, [] as [u8; 0]);
 }
@@ -106,13 +106,13 @@ fn incompatible_fields_are_rejected_before_output() {
         Status::new(State::Working)
             .kind(Kind::Auth)
             .write_to(&mut output),
-        Err(SendError::IncompatibleField)
+        Err(Error::IncompatibleField)
     ));
     assert!(matches!(
         Status::new(State::Done)
             .progress(Progress::new(42).unwrap())
             .write_to(&mut output),
-        Err(SendError::IncompatibleField)
+        Err(Error::IncompatibleField)
     ));
     assert_eq!(output, [] as [u8; 0]);
 }
@@ -174,6 +174,6 @@ impl Write for FailingWriter {
 fn io_failures_are_returned_to_the_caller() {
     assert!(matches!(
         Status::new(State::Idle).write_to(&mut FailingWriter),
-        Err(SendError::Io(_))
+        Err(Error::Io(_))
     ));
 }

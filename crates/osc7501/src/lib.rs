@@ -5,10 +5,14 @@
 //! status frames cannot interleave with screen updates. Flush at your chosen
 //! output boundary; this crate does not flush implicitly.
 
+mod constants;
+
 use std::{
     fmt,
     io::{self, Write},
 };
+
+use constants::ALPHABET;
 
 pub use osc7501_parser::{
     Action, AppId, Capabilities, Decoder, Event, Kind, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE,
@@ -100,7 +104,7 @@ impl<'a> Status<'a> {
     /// Returns a validation error before writing if text is invalid or fields
     /// are incompatible with the state. Returns an I/O error if writing fails;
     /// I/O failures can leave a partial frame, as with any `write_all` operation.
-    pub fn write_to(self, output: &mut impl Write) -> Result<(), SendError> {
+    pub fn write_to(self, output: &mut impl Write) -> Result<(), Error> {
         self.validate()?;
         let mut frame = [0; MAX_SEQUENCE];
         let mut cursor = io::Cursor::new(frame.as_mut_slice());
@@ -127,27 +131,27 @@ impl<'a> Status<'a> {
             encode(message.as_bytes(), &mut cursor)?;
         }
         cursor.write_all(b"\x1b\\")?;
-        let length = usize::try_from(cursor.position()).map_err(|_| SendError::FrameTooLarge)?;
+        let length = usize::try_from(cursor.position()).map_err(|_| Error::FrameTooLarge)?;
         output.write_all(&frame[..length])?;
         Ok(())
     }
 
-    fn validate(self) -> Result<(), SendError> {
+    fn validate(self) -> Result<(), Error> {
         if self.kind.is_some() && self.action != Action::Set(State::Blocked) {
-            return Err(SendError::IncompatibleField);
+            return Err(Error::IncompatibleField);
         }
         if self.progress.is_some()
             && !matches!(self.action, Action::Set(State::Working | State::Blocked))
         {
-            return Err(SendError::IncompatibleField);
+            return Err(Error::IncompatibleField);
         }
         for (text, cap) in [(self.title, MAX_TITLE), (self.message, MAX_MESSAGE)] {
             if let Some(text) = text {
                 if text.len() > cap {
-                    return Err(SendError::TextTooLong);
+                    return Err(Error::TextTooLong);
                 }
                 if text.chars().any(char::is_control) {
-                    return Err(SendError::ControlCharacter);
+                    return Err(Error::ControlCharacter);
                 }
             }
         }
@@ -156,7 +160,6 @@ impl<'a> Status<'a> {
 }
 
 fn encode(input: &[u8], output: &mut impl Write) -> io::Result<()> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     for chunk in input.chunks(3) {
         let a = chunk[0];
         let b = chunk.get(1).copied().unwrap_or(0);
@@ -194,7 +197,7 @@ pub fn write_query(output: &mut impl Write) -> io::Result<()> {
 
 /// Validation or transport failure while emitting a report.
 #[derive(Debug)]
-pub enum SendError {
+pub enum Error {
     /// A title or message exceeds the decoded byte cap.
     TextTooLong,
     /// Text contains a forbidden control character.
@@ -207,13 +210,13 @@ pub enum SendError {
     Io(io::Error),
 }
 
-impl From<io::Error> for SendError {
+impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }
 
-impl fmt::Display for SendError {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TextTooLong => f.write_str("status text exceeds its byte cap"),
@@ -225,7 +228,7 @@ impl fmt::Display for SendError {
     }
 }
 
-impl std::error::Error for SendError {
+impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         if let Self::Io(error) = self {
             Some(error)
