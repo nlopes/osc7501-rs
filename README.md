@@ -29,7 +29,7 @@ fn awaiting_approval(output: &mut dyn Write) -> Result<(), osc7501::Error> {
 ```
 
 Use the same output writer as your TUI's screen rendering. The crate leaves
-flushing to you.
+flushing to you. Invalid reports are rejected before any bytes are sent.
 
 A report without an id describes the whole program. Use an id such as
 `build/test` for a child task. Each report replaces all fields of its record,

@@ -79,6 +79,10 @@ other. `Status::clear().id(id)` removes a finished subtree when appropriate.
 - The producer owns a 4096-byte local encoding buffer during emission.
 - No recursion, per-pair collections, dynamic strings, caches, or task registries.
 
+The largest valid revision 0.4 report is 3220 bytes, with all fields at their
+limits. It fits in the producer's 4096-byte buffer. The producer test checks
+the exact length, parses the result, and verifies zero heap allocations.
+
 These are library buffers, not a whole-process RSS promise. The Rust standard
 runtime, dynamic loader, TUI framework, threads, and caller-retained reports
 have their own memory. Allocation-counter tests exercise maximal text, complete

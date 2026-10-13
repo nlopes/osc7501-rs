@@ -106,31 +106,31 @@ impl<'a> Status<'a> {
     pub fn write_to<W: Write + ?Sized>(self, output: &mut W) -> Result<(), Error> {
         self.validate()?;
         let mut frame = [0; MAX_SEQUENCE];
-        let mut cursor = io::Cursor::new(frame.as_mut_slice());
-        cursor.write_all(b"\x1b]7501;state=")?;
-        cursor.write_all(self.action.as_str().as_bytes())?;
+        let mut remaining = frame.as_mut_slice();
+        remaining.write_all(b"\x1b]7501;state=")?;
+        remaining.write_all(self.action.as_str().as_bytes())?;
         for (key, value) in [
             ("id", self.id.map(RecordId::as_str)),
             ("app", self.app.map(AppId::as_str)),
             ("kind", self.kind.map(Kind::as_str)),
         ] {
             if let Some(value) = value {
-                write!(cursor, ":{key}={value}")?;
+                write!(remaining, ":{key}={value}")?;
             }
         }
         if let Some(progress) = self.progress {
-            write!(cursor, ":progress={}", progress.get())?;
+            write!(remaining, ":progress={}", progress.get())?;
         }
         if let Some(title) = self.title {
-            cursor.write_all(b":title=")?;
-            encode(title.as_bytes(), &mut cursor)?;
+            remaining.write_all(b":title=")?;
+            encode(title.as_bytes(), &mut remaining)?;
         }
         if let Some(message) = self.message {
-            cursor.write_all(b":msg=")?;
-            encode(message.as_bytes(), &mut cursor)?;
+            remaining.write_all(b":msg=")?;
+            encode(message.as_bytes(), &mut remaining)?;
         }
-        cursor.write_all(b"\x1b\\")?;
-        let length = usize::try_from(cursor.position()).map_err(|_| Error::FrameTooLarge)?;
+        remaining.write_all(b"\x1b\\")?;
+        let length = MAX_SEQUENCE - remaining.len();
         output.write_all(&frame[..length])?;
         Ok(())
     }
@@ -207,9 +207,6 @@ pub enum Error {
     /// Kind or progress is incompatible with this state.
     #[error("status field is incompatible with its state")]
     IncompatibleField,
-    /// The encoded frame exceeds available space.
-    #[error("status frame exceeds its byte cap")]
-    FrameTooLarge,
     /// A value constructor, parser, or text decoder failed.
     #[error("{0}")]
     Parser(#[from] parser::Error),

@@ -160,7 +160,7 @@ fn maximum_legal_producer_report_fits_and_round_trips() -> TestResult {
     assert_eq!(info.count_total, 0);
     assert_eq!(info.bytes_max, 0);
     let length = usize::try_from(cursor.position())?;
-    assert!(length < 3300);
+    assert_eq!(length, 3220);
     let Some(Event::Report(value)) = parse_sequence(&frame[..length])? else {
         return Err("expected report".into());
     };
