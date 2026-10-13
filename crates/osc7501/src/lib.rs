@@ -1,4 +1,4 @@
-//! Typed OSC 7501 emission through an application's existing output writer.
+//! OSC 7501 emission through an application's existing output writer.
 //!
 //! Validation happens before writing any bytes. Emission uses fixed-size stack
 //! storage and no heap allocation. Share and lock your TUI's output writer so
@@ -11,9 +11,9 @@ use std::{
 };
 
 pub use osc7501_parser::{
-    Action, AppId, Capabilities, Decoder, Event, Kind, Progress, RecordId, State,
+    Action, AppId, Capabilities, Decoder, Event, Kind, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE,
+    Progress, RecordId, State,
 };
-use osc7501_parser::{MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE};
 
 /// Plain-text report to encode. `None` means absent, not "keep prior value".
 #[derive(Clone, Copy, Debug)]
