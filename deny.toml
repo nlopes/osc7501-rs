@@ -1,0 +1,10 @@
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[licenses]
+allow = ["MIT"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

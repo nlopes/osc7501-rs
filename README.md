@@ -62,11 +62,13 @@ rustup update stable
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings -D clippy::todo
 cargo nextest run --workspace --locked
+cargo deny --all-features --locked check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo run --release -p osc7501-parser --example benchmark
 ```
 
 Install nextest from [its official instructions](https://nexte.st/docs/installation/pre-built-binaries/).
+Install [cargo-deny](https://embarkstudios.github.io/cargo-deny/) to check dependency advisories, licenses, bans, and sources with `deny.toml`.
 Pedantic Clippy is enabled across the workspace; `clippy::todo` is denied.
 Unsafe code is forbidden. Oracle and allocation dependencies are development-only.
 Publishing is disabled while the private prototype is reviewed.
