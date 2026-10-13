@@ -1,0 +1,17 @@
+[package]
+name = "osc7501"
+description = "Typed program-status reports for Rust terminal applications"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+osc7501-parser = { path = "../osc7501-parser", version = "0.1.0" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+allocation-counter = "0.8.1"

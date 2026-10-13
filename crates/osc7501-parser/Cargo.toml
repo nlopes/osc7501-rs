@@ -1,0 +1,15 @@
+[package]
+name = "osc7501-parser"
+description = "Bounded, allocation-free OSC 7501 program-status parsing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+allocation-counter = "0.8.1"
+base64 = "0.23.1"
