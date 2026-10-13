@@ -28,6 +28,23 @@ Each update completely replaces its record, so repeat fields you want to keep.
 Report idle after cancellation, and done/error when work finishes. Child tasks
 use validated slash-separated `RecordId`s; clear removes a whole subtree.
 
+## Run the protocol demo
+
+```sh
+cargo run -p osc7501-rs --example demo
+```
+
+The [demo](crates/osc7501/examples/demo.rs) simulates a release in about 15 seconds.
+It shows all five states, all three blocking reasons, unknown and percentage
+progress, UTF-8 titles, and two child tasks that inherit the root's app.
+One task fails and retries. Clearing `build` removes both child records; the
+final root report remains `done`.
+
+Each update is flushed before a one-second pause. A terminal with OSC 7501
+support can display the status. The printed trace also explains each step.
+Redirected output contains only the trace and runs without pauses. The demo
+does not read input or query terminal capabilities; all prompts are simulated.
+
 ## Parse without allocation
 
 ```rust
