@@ -139,7 +139,7 @@ fn progress(value: &[u8]) -> Option<Progress> {
             return None;
         }
     }
-    Progress::new(percentage)
+    Progress::new(percentage).ok()
 }
 
 fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
@@ -190,7 +190,7 @@ fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
             b"id" => raw_id = Some(value),
             b"kind" => report.kind = Kind::parse(ascii(value)?),
             b"progress" => report.progress = progress(value),
-            b"app" => report.app = AppId::new(ascii(value)?),
+            b"app" => report.app = AppId::new(ascii(value)?).ok(),
             b"title" => report.title = Some(text(value, MAX_TITLE, Limit::Title)?),
             b"msg" => report.message = Some(text(value, MAX_MESSAGE, Limit::Message)?),
             _ => {}
@@ -200,7 +200,10 @@ fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
         return Ok(None);
     };
     if let Some(id) = raw_id {
-        let Some(id) = core::str::from_utf8(id).ok().and_then(RecordId::new) else {
+        let Some(id) = core::str::from_utf8(id)
+            .ok()
+            .and_then(|value| RecordId::new(value).ok())
+        else {
             return Ok(None);
         };
         report.id = Some(id);

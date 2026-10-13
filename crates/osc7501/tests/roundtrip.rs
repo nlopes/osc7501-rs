@@ -10,8 +10,8 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn emitter_round_trips_every_state() -> TestResult {
-    let app = AppId::new("example").ok_or("invalid application id")?;
-    let id = RecordId::new("build/test").ok_or("invalid record id")?;
+    let app = AppId::new("example")?;
+    let id = RecordId::new("build/test")?;
     for state in [
         State::Idle,
         State::Working,
@@ -56,7 +56,7 @@ fn emitter_round_trips_blocking_reason_and_progress() -> TestResult {
     let mut output = Vec::new();
     Status::new(State::Blocked)
         .kind(Kind::Permission)
-        .progress(Progress::new(100).ok_or("invalid progress")?)
+        .progress(Progress::new(100)?)
         .write_to(&mut output)?;
     let Some(Event::Report(value)) = parse_sequence(&output)? else {
         return Err("expected report".into());
@@ -68,10 +68,7 @@ fn emitter_round_trips_blocking_reason_and_progress() -> TestResult {
 
 #[test]
 fn root_clear_and_subtree_clear_round_trip() -> TestResult {
-    for id in [
-        None,
-        Some(RecordId::new("build/test").ok_or("invalid record id")?),
-    ] {
+    for id in [None, Some(RecordId::new("build/test")?)] {
         let mut output = Vec::new();
         let mut status = Status::clear();
         if let Some(id) = id {
@@ -125,7 +122,7 @@ fn incompatible_fields_are_rejected_before_output() -> TestResult {
     ));
     assert!(matches!(
         Status::new(State::Done)
-            .progress(Progress::new(42).ok_or("invalid progress")?)
+            .progress(Progress::new(42)?)
             .write_to(&mut output),
         Err(Error::IncompatibleField)
     ));
@@ -146,10 +143,10 @@ fn maximum_legal_producer_report_fits_and_round_trips() -> TestResult {
         "d".repeat(29)
     );
     let status = Status::new(State::Blocked)
-        .app(AppId::new(&app).ok_or("invalid application id")?)
-        .id(RecordId::new(&id).ok_or("invalid record id")?)
+        .app(AppId::new(&app)?)
+        .id(RecordId::new(&id)?)
         .kind(Kind::Permission)
-        .progress(Progress::new(100).ok_or("invalid progress")?)
+        .progress(Progress::new(100)?)
         .title(&title)
         .message(&message);
     let mut frame = [0; 4096];
@@ -231,6 +228,51 @@ impl Write for FailingWriter {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
+}
+
+#[test]
+fn constructor_errors_propagate_without_allocating_or_writing() -> TestResult {
+    fn emit(output: &mut dyn Write, app: &str, id: &str, progress: u8) -> Result<(), Error> {
+        Status::new(State::Working)
+            .app(AppId::new(app)?)
+            .id(RecordId::new(id)?)
+            .progress(Progress::new(progress)?)
+            .write_to(output)
+    }
+
+    let mut output = Vec::new();
+    for (app, id, progress, expected) in [
+        ("", "build/test", 40, osc7501_parser::Error::InvalidAppId),
+        ("example", "", 40, osc7501_parser::Error::InvalidRecordId),
+        (
+            "example",
+            "build/test",
+            101,
+            osc7501_parser::Error::InvalidProgress,
+        ),
+    ] {
+        let mut result = Ok(());
+        let info = allocation_counter::measure(|| result = emit(&mut output, app, id, progress));
+        let error = result.err().ok_or("expected constructor failure")?;
+        assert!(matches!(error, Error::Parser(actual) if actual == expected));
+        assert_eq!(error.to_string(), expected.to_string());
+        assert_eq!(
+            error
+                .source()
+                .ok_or("missing constructor error source")?
+                .downcast_ref::<osc7501_parser::Error>(),
+            Some(&expected)
+        );
+        assert_eq!(info.count_total, 0);
+        assert_eq!(info.bytes_max, 0);
+        assert_eq!(output, [] as [u8; 0]);
+    }
+    emit(&mut output, "example", "build/test", 40)?;
+    let Some(Event::Report(report)) = parse_sequence(&output)? else {
+        return Err("expected report".into());
+    };
+    assert_eq!(report.progress.ok_or("missing progress")?.get(), 40);
+    Ok(())
 }
 
 #[test]

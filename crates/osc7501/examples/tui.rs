@@ -2,18 +2,18 @@
 use osc7501::{AppId, Kind, Progress, State, Status};
 use std::io::{self, IsTerminal, Write};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), osc7501::Error> {
     let stderr = io::stderr();
     if !stderr.is_terminal() {
         return Ok(());
     }
-    let app = AppId::new("example").ok_or("invalid application id")?;
+    let app = AppId::new("example")?;
     let mut writer = stderr.lock();
     let output: &mut dyn Write = &mut writer;
     Status::new(State::Working)
         .app(app)
         .message("Rendering preview")
-        .progress(Progress::new(40).ok_or("invalid progress")?)
+        .progress(Progress::new(40)?)
         .write_to(output)?;
     Status::new(State::Blocked)
         .app(app)

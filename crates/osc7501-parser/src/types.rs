@@ -101,13 +101,15 @@ impl Action {
 pub struct Progress(u8);
 
 impl Progress {
-    /// Returns `None` for percentages above 100.
-    #[must_use]
-    pub const fn new(value: u8) -> Option<Self> {
+    /// Validates a percentage without allocating.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidProgress`] for percentages above 100.
+    pub const fn new(value: u8) -> Result<Self, Error> {
         if value <= 100 {
-            Some(Self(value))
+            Ok(Self(value))
         } else {
-            None
+            Err(Error::InvalidProgress)
         }
     }
 
@@ -115,6 +117,14 @@ impl Progress {
     #[must_use]
     pub const fn get(self) -> u8 {
         self.0
+    }
+}
+
+impl TryFrom<u8> for Progress {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
     }
 }
 
@@ -128,10 +138,14 @@ pub struct RecordId<'a>(&'a str);
 
 impl<'a> RecordId<'a> {
     /// Validates a non-root identifier without allocating.
-    #[must_use]
-    pub fn new(value: &'a str) -> Option<Self> {
+    /// Segments use ASCII letters, digits, `_`, `.`, `+`, or `-`.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidRecordId`] if the identifier or any segment is
+    /// empty, contains forbidden characters, or exceeds a length or depth limit.
+    pub fn new(value: &'a str) -> Result<Self, Error> {
         if value.is_empty() || value.len() > MAX_ID {
-            return None;
+            return Err(Error::InvalidRecordId);
         }
         let mut depth = 0;
         for segment in value.split('/') {
@@ -141,10 +155,10 @@ impl<'a> RecordId<'a> {
                 || segment.len() > MAX_SEGMENT
                 || !segment.bytes().all(segment_byte)
             {
-                return None;
+                return Err(Error::InvalidRecordId);
             }
         }
-        Some(Self(value))
+        Ok(Self(value))
     }
 
     /// Returns the borrowed identifier.
@@ -154,18 +168,30 @@ impl<'a> RecordId<'a> {
     }
 }
 
+impl<'a> TryFrom<&'a str> for RecordId<'a> {
+    type Error = Error;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
 /// A validated stable application identifier.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AppId<'a>(&'a str);
 
 impl<'a> AppId<'a> {
     /// Validates a stable identifier without allocating.
-    #[must_use]
-    pub fn new(value: &'a str) -> Option<Self> {
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidAppId`] if the identifier is empty, exceeds
+    /// [`MAX_APP`], or contains characters other than ASCII letters, digits,
+    /// `_`, `.`, `+`, or `-`.
+    pub fn new(value: &'a str) -> Result<Self, Error> {
         if value.is_empty() || value.len() > MAX_APP || !value.bytes().all(segment_byte) {
-            None
+            Err(Error::InvalidAppId)
         } else {
-            Some(Self(value))
+            Ok(Self(value))
         }
     }
 
@@ -173,6 +199,14 @@ impl<'a> AppId<'a> {
     #[must_use]
     pub const fn as_str(self) -> &'a str {
         self.0
+    }
+}
+
+impl<'a> TryFrom<&'a str> for AppId<'a> {
+    type Error = Error;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        Self::new(value)
     }
 }
 

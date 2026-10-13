@@ -12,16 +12,22 @@ All workspace members live in `crates/`:
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
 `Action::Clear` prevents confusing subtree deletion with a stored state.
-Validated `RecordId`, `AppId`, and `Progress` reject invalid producer identities
-or percentages without allocating. State-specific producer fields are checked
-before output begins.
+`RecordId::new`, `AppId::new`, and `Progress::new` return `Result` without
+allocating. Invalid inputs return `Error::InvalidRecordId`, `Error::InvalidAppId`,
+or `Error::InvalidProgress`. `TryFrom<&str>` for identifiers and `TryFrom<u8>`
+for progress use the same validation. The parser still discards reports with
+invalid ids and treats invalid apps or progress as absent. Hard-cap violations
+still reject the report with `Error::Limit`. State-specific producer fields are
+checked before output begins.
 
-Parsing, streaming, and text decoding share `Error`. `BufferTooSmall` means the
-caller supplied too little decode storage; `Limit` means input exceeded a
-protocol cap. Both crates inherit `thiserror` from the workspace manifest with
-its `std` feature disabled. The generated error implementations do not allocate.
-The derive macro adds host build dependencies. The producer's `Error::Io`
-preserves the writer error as its source.
+Value construction, parsing, streaming, and text decoding share `Error`.
+`BufferTooSmall` means the caller supplied too little decode storage; `Limit`
+means input exceeded a protocol cap. Both crates inherit `thiserror` from the
+workspace manifest with its `std` feature disabled. The generated error
+implementations do not allocate. The derive macro adds host build dependencies.
+The producer's `Error::Parser` wraps parser errors, so `?` can propagate value
+construction, parsing, and text decoding through `osc7501::Error`. Its `Error::Io`
+wraps writer failures. Both variants preserve the original error as their source.
 
 `Report<'a>` borrows identifiers and base64 input. `EncodedText` is validated
 eagerly, then decoded into caller storage only when displayed. This avoids

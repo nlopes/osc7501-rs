@@ -194,7 +194,7 @@ pub fn write_query<W: Write + ?Sized>(output: &mut W) -> io::Result<()> {
     output.write_all(b"\x1b]7501;?\x1b\\")
 }
 
-/// Validation or transport failure while emitting a report.
+/// Validation, parsing, or transport failure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// A title or message exceeds the decoded byte cap.
@@ -209,6 +209,9 @@ pub enum Error {
     /// The encoded frame exceeds available space.
     #[error("status frame exceeds its byte cap")]
     FrameTooLarge,
+    /// A value constructor, parser, or text decoder failed.
+    #[error("{0}")]
+    Parser(#[from] osc7501_parser::Error),
     /// The caller's output writer failed.
     #[error("{0}")]
     Io(#[from] io::Error),

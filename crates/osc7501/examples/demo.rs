@@ -6,14 +6,14 @@ use std::{
     time::Duration,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), osc7501::Error> {
     let stdout = io::stdout();
     let terminal = stdout.is_terminal();
     let mut output = stdout.lock();
-    let app = AppId::new("osc7501-demo").ok_or("invalid application id")?;
-    let build = RecordId::new("build").ok_or("invalid record id")?;
-    let test_id = RecordId::new("build/tests").ok_or("invalid record id")?;
-    let docs_id = RecordId::new("build/docs").ok_or("invalid record id")?;
+    let app = AppId::new("osc7501-demo")?;
+    let build = RecordId::new("build")?;
+    let test_id = RecordId::new("build/tests")?;
+    let docs_id = RecordId::new("build/docs")?;
 
     // Each update replaces its record, so repeat the app and title.
     let root = |state, message| {
@@ -35,8 +35,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .title("Documentation")
             .message(message)
     };
-    let progress = |percent| Progress::new(percent).ok_or("invalid progress");
-
     writeln!(output, "OSC 7501 demo: all work and prompts are simulated.")?;
     for (label, status) in [
         (
@@ -53,11 +51,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "working: signed in, starting the build (0%)",
-            root(State::Working, "Starting the build").progress(progress(0)?),
+            root(State::Working, "Starting the build").progress(Progress::new(0)?),
         ),
         (
             "working build/tests: running tests (25%)",
-            tests(State::Working, "Running tests").progress(progress(25)?),
+            tests(State::Working, "Running tests").progress(Progress::new(25)?),
         ),
         (
             "working build/docs: generating documentation",
@@ -77,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "working build/docs: retrying with the new link (75%)",
-            docs(State::Working, "Retrying with the new link").progress(progress(75)?),
+            docs(State::Working, "Retrying with the new link").progress(Progress::new(75)?),
         ),
         (
             "done build/docs: documentation ready",
@@ -87,11 +85,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "blocked/permission: simulated approval (100%)",
             root(State::Blocked, "Publish this preview?")
                 .kind(Kind::Permission)
-                .progress(progress(100)?),
+                .progress(Progress::new(100)?),
         ),
         (
             "working: publishing the preview (100%)",
-            root(State::Working, "Publishing the preview").progress(progress(100)?),
+            root(State::Working, "Publishing the preview").progress(Progress::new(100)?),
         ),
         (
             "clear build: remove both child records",

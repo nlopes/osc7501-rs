@@ -1,20 +1,25 @@
 # osc7501-rs
 
-Compact Rust libraries for **OSC 7501 Program Status Protocol, revision 0.4**.
-Latest stable Rust, edition 2024. All workspace crates live in `crates/`.
+Rust libraries for **OSC 7501 Program Status Protocol, revision 0.4**. A program
+can tell its terminal that it is idle, working, waiting for the user, done, or
+has failed. The terminal decides how to display that status.
 
 | Crate | What it does |
 | --- | --- |
-| `osc7501-parser` | `no_std` parsing with borrowed results and bounded streaming |
-| `osc7501` | Typed status emission through your application's existing writer |
+| `osc7501` | Send status reports from a terminal application |
+| `osc7501-parser` | Parse status reports and terminal capability replies |
+
+The parser can be used on its own and works without `std`. Both crates process
+reports without heap allocation.
 
 ## Send from a TUI
 
 ```rust
 use osc7501::{AppId, Kind, State, Status};
+use std::io::Write;
 
-fn awaiting_approval(output: &mut dyn std::io::Write) -> Result<(), osc7501::Error> {
-    let app = AppId::new("my-tui").expect("constant valid app id");
+fn awaiting_approval(output: &mut dyn Write) -> Result<(), osc7501::Error> {
+    let app = AppId::new("my-tui")?;
     Status::new(State::Blocked)
         .app(app)
         .kind(Kind::Permission)
@@ -23,12 +28,15 @@ fn awaiting_approval(output: &mut dyn std::io::Write) -> Result<(), osc7501::Err
 }
 ```
 
-`Status::write_to` and `write_query` accept concrete writers and `&mut dyn Write`
-directly. Use the same writer/lock as screen rendering, and flush at your chosen
-boundary.
-Each update completely replaces its record, so repeat fields you want to keep.
-Report idle after cancellation, and done/error when work finishes. Child tasks
-use validated slash-separated `RecordId`s; clear removes a whole subtree.
+Use the same output writer as your TUI's screen rendering. The crate leaves
+flushing to you.
+
+A report without an id describes the whole program. Use an id such as
+`build/test` for a child task. Each report replaces all fields of its record,
+so repeat fields you want to keep. `Status::clear().id(id)` removes that task
+and its children.
+
+Send `idle` after cancellation and `done` or `error` when work ends.
 
 ## Run the protocol demo
 
@@ -36,18 +44,14 @@ use validated slash-separated `RecordId`s; clear removes a whole subtree.
 cargo run -p osc7501-rs --example demo
 ```
 
-The [demo](crates/osc7501/examples/demo.rs) simulates a release in about 15 seconds.
-It shows all five states, all three blocking reasons, unknown and percentage
-progress, UTF-8 titles, and two child tasks that inherit the root's app.
-One task fails and retries. Clearing `build` removes both child records; the
-final root report remains `done`.
+The [demo](crates/osc7501/examples/demo.rs) simulates a release with child tasks,
+approval prompts, and a task that fails and retries. In a terminal, it sends a
+report each second and takes about 15 seconds. A terminal with OSC 7501 support
+can display the reports.
 
-Each update is flushed before a one-second pause. A terminal with OSC 7501
-support can display the status. The printed trace also explains each step.
-Redirected output contains only the trace and runs without pauses. The demo
-does not read input or query terminal capabilities; all prompts are simulated.
+Redirected output contains a plain text trace and runs without pauses.
 
-## Parse without allocation
+## Parse reports
 
 ```rust
 use osc7501_parser::{Event, parse_sequence};
@@ -61,42 +65,31 @@ if let Some(Event::Report(report)) = parse_sequence(input).expect("valid frame")
 }
 ```
 
-Use `parse_body` from an existing OSC dispatcher. Use `Decoder::feed` for
-arbitrary byte chunks; callback data borrows its 4096-byte inline buffer.
-Missing/unknown state and invalid ids return `Ok(None)`. Hard-limit violations,
-invalid base64/UTF-8, and decoded controls reject the entire report.
+Use `parse_sequence` for a complete OSC sequence. If your terminal code already
+handles escape sequences, use `parse_body`. `Decoder::feed` handles input split
+across reads.
 
-Parsing, streaming, and text decoding use `osc7501_parser::Error` for failures.
-Both crates inherit `thiserror` from the workspace with default features disabled,
-preserving the parser's `no_std` support.
+Messages and titles stay encoded so you can decode only the text you need.
+The parser checks their contents before it returns the report.
 
-## Resource target
-
-**Zero heap allocations** for parsing, streaming, text decoding, and bounded
-producer emission. Measured x86-64 sizes: decoder **4112 bytes**, report
-**88 bytes**. Validation needs one 2048-byte decode scratch buffer.
-This satisfies a sub-1-MB parser resource target; it does not constrain the
-Rust runtime or the host TUI's total RSS. See the measurements and limits below.
+The parser rejects the whole report if text is invalid or a protocol limit is
+exceeded. Otherwise, it ignores reports with an unknown or missing state, or an
+invalid record id. Invalid app ids and progress values are treated as absent.
 
 ## Develop
 
 ```sh
-rustup update stable
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings -D clippy::todo
 cargo nextest run --workspace --locked
 cargo deny --all-features --locked check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-cargo run --release -p osc7501-parser --example benchmark
 ```
 
-Install nextest from [its official instructions](https://nexte.st/docs/installation/pre-built-binaries/).
-Install [cargo-deny](https://embarkstudios.github.io/cargo-deny/) to check dependency advisories, licenses, bans, and sources with `deny.toml`.
-Pedantic Clippy is enabled across the workspace; `clippy::todo` is denied.
-Unsafe code is forbidden. Oracle and allocation dependencies are development-only.
-Publishing is disabled while the private prototype is reviewed.
+The checks use [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/)
+and [cargo-deny](https://embarkstudios.github.io/cargo-deny/).
 
-- [Specification extraction, every section](docs/protocol.md)
-- [API and memory design](docs/design.md)
-- [Measured performance and verification](docs/performance.md)
+- [Protocol notes](docs/protocol.md)
+- [Design decisions](docs/design.md)
+- [Performance measurements](docs/performance.md)
 - [Protocol source](https://www.superlogical.com/rex/docs/build/program-status)

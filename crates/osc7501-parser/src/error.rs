@@ -1,9 +1,18 @@
 use crate::Limit;
 
-/// Failure to parse OSC 7501 input or decode its text.
+/// Failure to validate a value, parse OSC 7501 input, or decode its text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Invalid application identifier grammar or length.
+    #[error("invalid application identifier")]
+    InvalidAppId,
+    /// Invalid record identifier grammar, length, or depth.
+    #[error("invalid record identifier")]
+    InvalidRecordId,
+    /// A percentage exceeds 100.
+    #[error("progress must be between 0 and 100")]
+    InvalidProgress,
     /// Not exactly one complete OSC 7501 sequence.
     #[error("invalid OSC 7501 framing")]
     Framing,

@@ -145,9 +145,11 @@ fn progress_is_optional_and_strictly_bounded() -> TestResult {
     for value in ["", "101", "-1", "+1", "1.5", "2a", "999999999999"] {
         let body = format!("state=working:progress={value}");
         assert!(report(body.as_bytes())?.progress.is_none());
+        let body = format!("state=working:progress=40:progress={value}");
+        assert!(report(body.as_bytes())?.progress.is_none());
     }
     assert!(report(b"state=blocked")?.progress.is_none());
-    assert!(Progress::new(101).is_none());
+    assert_eq!(Progress::new(101), Err(Error::InvalidProgress));
     Ok(())
 }
 
@@ -156,9 +158,13 @@ fn unknown_kinds_and_invalid_apps_are_absent() -> TestResult {
     let value = report(b"state=blocked:kind=future:app=cargo/tool")?;
     assert!(value.kind.is_none());
     assert!(value.app.is_none());
-    assert!(AppId::new("").is_none());
-    assert!(AppId::new("not an id").is_none());
-    assert!(AppId::new("a.b_c+d-e").is_some());
+    for app in ["", "cargo/tool", "cargo,tool", "cargo=tool"] {
+        let body = format!("state=working:app=cargo:app={app}");
+        assert!(report(body.as_bytes())?.app.is_none());
+    }
+    assert_eq!(AppId::new(""), Err(Error::InvalidAppId));
+    assert_eq!(AppId::new("not an id"), Err(Error::InvalidAppId));
+    assert!(AppId::new("a.b_c+d-e").is_ok());
     Ok(())
 }
 
@@ -377,7 +383,7 @@ fn checks_every_known_encoded_limit_even_if_overridden() {
 #[test]
 fn enforces_id_depth_segment_and_total_limits() {
     let eight = "a/a/a/a/a/a/a/a";
-    assert!(RecordId::new(eight).is_some());
+    assert!(RecordId::new(eight).is_ok());
     assert_eq!(
         parse_body(b"state=idle:id=a/a/a/a/a/a/a/a/a"),
         Err(Error::Limit(Limit::Id))
@@ -392,7 +398,7 @@ fn enforces_id_depth_segment_and_total_limits() {
         "d".repeat(29)
     );
     assert_eq!(maximum.len(), 128);
-    assert!(RecordId::new(&maximum).is_some());
+    assert!(RecordId::new(&maximum).is_ok());
 }
 
 #[test]
