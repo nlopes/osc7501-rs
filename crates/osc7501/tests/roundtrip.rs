@@ -178,6 +178,51 @@ fn optional_query_has_the_correct_wire_format() -> TestResult {
     Ok(())
 }
 
+struct FlushTrackingWriter {
+    output: io::Cursor<[u8; 64]>,
+    flushes: usize,
+}
+
+impl Write for FlushTrackingWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.output.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.flushes += 1;
+        Ok(())
+    }
+}
+
+#[test]
+fn trait_object_emission_does_not_allocate_or_flush() -> TestResult {
+    let mut writer = FlushTrackingWriter {
+        output: io::Cursor::new([0; 64]),
+        flushes: 0,
+    };
+    let output: &mut dyn Write = &mut writer;
+    let mut status_result = Ok(());
+    let mut query_result = Ok(());
+    let info = allocation_counter::measure(|| {
+        status_result = Status::new(State::Done).message("OK").write_to(output);
+        query_result = write_query(output);
+    });
+    status_result?;
+    query_result?;
+    assert_eq!(info.count_total, 0);
+    assert_eq!(info.bytes_max, 0);
+    let length = usize::try_from(writer.output.position())?;
+    assert_eq!(
+        &writer.output.get_ref()[..length],
+        b"\x1b]7501;state=done:msg=T0s=\x1b\\\x1b]7501;?\x1b\\"
+    );
+    assert_eq!(writer.flushes, 0);
+    let output: &mut dyn Write = &mut writer;
+    output.flush()?;
+    assert_eq!(writer.flushes, 1);
+    Ok(())
+}
+
 struct FailingWriter;
 impl Write for FailingWriter {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {

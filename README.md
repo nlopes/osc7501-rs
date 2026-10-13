@@ -13,7 +13,7 @@ Latest stable Rust, edition 2024. All workspace crates live in `crates/`.
 ```rust
 use osc7501::{AppId, Kind, State, Status};
 
-fn awaiting_approval(output: &mut impl std::io::Write) -> Result<(), osc7501::Error> {
+fn awaiting_approval(output: &mut dyn std::io::Write) -> Result<(), osc7501::Error> {
     let app = AppId::new("my-tui").expect("constant valid app id");
     Status::new(State::Blocked)
         .app(app)
@@ -23,7 +23,9 @@ fn awaiting_approval(output: &mut impl std::io::Write) -> Result<(), osc7501::Er
 }
 ```
 
-Use the same writer/lock as screen rendering, and flush at your chosen boundary.
+`Status::write_to` and `write_query` accept concrete writers and `&mut dyn Write`
+directly. Use the same writer/lock as screen rendering, and flush at your chosen
+boundary.
 Each update completely replaces its record, so repeat fields you want to keep.
 Report idle after cancellation, and done/error when work finishes. Child tasks
 use validated slash-separated `RecordId`s; clear removes a whole subtree.

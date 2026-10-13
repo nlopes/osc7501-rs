@@ -96,12 +96,13 @@ impl<'a> Status<'a> {
     }
 
     /// Encodes a complete report and writes it through the caller's writer.
+    /// This method does not flush the writer.
     ///
     /// # Errors
     /// Returns a validation error before writing if text is invalid or fields
     /// are incompatible with the state. Returns an I/O error if writing fails;
     /// I/O failures can leave a partial frame, as with any `write_all` operation.
-    pub fn write_to(self, output: &mut impl Write) -> Result<(), Error> {
+    pub fn write_to<W: Write + ?Sized>(self, output: &mut W) -> Result<(), Error> {
         self.validate()?;
         let mut frame = [0; MAX_SEQUENCE];
         let mut cursor = io::Cursor::new(frame.as_mut_slice());
@@ -181,6 +182,7 @@ fn encode(input: &[u8], output: &mut impl Write) -> io::Result<()> {
 }
 
 /// Writes an optional feature query without reading input or imposing a timeout.
+/// This function does not flush the writer.
 ///
 /// Route replies through the TUI's existing input reader and [`Decoder`].
 /// A bare query and a default reply have identical bytes; use stream direction
@@ -188,7 +190,7 @@ fn encode(input: &[u8], output: &mut impl Write) -> io::Result<()> {
 ///
 /// # Errors
 /// Returns the writer's I/O error.
-pub fn write_query(output: &mut impl Write) -> io::Result<()> {
+pub fn write_query<W: Write + ?Sized>(output: &mut W) -> io::Result<()> {
     output.write_all(b"\x1b]7501;?\x1b\\")
 }
 

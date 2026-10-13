@@ -36,12 +36,13 @@ meaning changes. Use `Status::new(State::Blocked).kind(Kind::Permission)` for
 approval, `Question` for typed answers, and `Auth` for credentials. Omit progress
 when the amount of work is unknown. Repeat root `app` on every update.
 
-Send through the writer/lock already used for rendering. `write_to` first
-validates and encodes into a fixed stack frame, then calls `write_all` on the
-caller writer. No implicit output channel, flush, background thread, signal
-handler, input reader, or terminal mode change is introduced. Writer failures
-propagate; a transport error may leave a partial frame. The caller determines
-TTY policy, flush timing, output serialization, and error policy.
+Send through the writer/lock already used for rendering. Both `Status::write_to`
+and `write_query` accept concrete writers and `&mut dyn Write` directly.
+`write_to` first validates and encodes into a fixed stack frame, then calls
+`write_all` on the caller writer. No implicit output channel, flush, background
+thread, signal handler, input reader, or terminal mode change is introduced.
+Writer failures propagate; a transport error may leave a partial frame. The
+caller determines TTY policy, flush timing, output serialization, and error policy.
 
 Feature queries are explicit. Route responses through the existing TUI input
 loop; never install a competing reader. Track a pending query, interpret bare

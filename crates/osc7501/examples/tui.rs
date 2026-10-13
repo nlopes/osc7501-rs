@@ -8,21 +8,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let app = AppId::new("example").ok_or("invalid application id")?;
-    let mut output = stderr.lock();
+    let mut writer = stderr.lock();
+    let output: &mut dyn Write = &mut writer;
     Status::new(State::Working)
         .app(app)
         .message("Rendering preview")
         .progress(Progress::new(40).ok_or("invalid progress")?)
-        .write_to(&mut output)?;
+        .write_to(output)?;
     Status::new(State::Blocked)
         .app(app)
         .kind(Kind::Permission)
         .message("Publish this preview?")
-        .write_to(&mut output)?;
+        .write_to(output)?;
     Status::new(State::Done)
         .app(app)
         .message("Preview ready")
-        .write_to(&mut output)?;
+        .write_to(output)?;
     output.flush()?;
     Ok(())
 }
