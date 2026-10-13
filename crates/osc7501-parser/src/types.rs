@@ -1,6 +1,4 @@
-use core::fmt;
-
-use crate::{MAX_APP, MAX_DEPTH, MAX_ID, MAX_SEGMENT, base64};
+use crate::{Error, MAX_APP, MAX_DEPTH, MAX_ID, MAX_SEGMENT, base64};
 
 /// A record's state. Clearing is represented separately by [`Action::Clear`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -201,10 +199,10 @@ impl<'a> EncodedText<'a> {
     /// Decodes into caller-owned storage, returning a UTF-8 view of that storage.
     ///
     /// # Errors
-    /// Returns [`DecodeError::BufferTooSmall`] when the destination is too small.
-    pub fn decode_into(self, output: &mut [u8]) -> Result<&str, DecodeError> {
+    /// Returns [`Error::BufferTooSmall`] when the destination is too small.
+    pub fn decode_into(self, output: &mut [u8]) -> Result<&str, Error> {
         let length = base64::decode(self.encoded.as_bytes(), output)?;
-        core::str::from_utf8(&output[..length]).map_err(|_| DecodeError::InvalidUtf8)
+        core::str::from_utf8(&output[..length]).map_err(|_| Error::InvalidUtf8)
     }
 }
 
@@ -294,55 +292,3 @@ pub enum Limit {
     /// Identifier length, segment length, or depth.
     Id,
 }
-
-/// Failure to decode text into a caller's destination.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DecodeError {
-    /// The destination does not have enough capacity.
-    BufferTooSmall,
-    /// Invalid alphabet, padding, length, or nonzero unused bits.
-    InvalidBase64,
-    /// Decoded bytes are not valid UTF-8.
-    InvalidUtf8,
-}
-
-/// A report rejected as a whole. No partial report is returned.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParseError {
-    /// Not exactly one complete OSC 7501 sequence.
-    Framing,
-    /// A hard cap was exceeded, including in an overridden pair.
-    Limit(Limit),
-    /// A syntactically valid text pair has invalid base64.
-    InvalidBase64,
-    /// A text value does not decode to UTF-8.
-    InvalidUtf8,
-    /// A text value contains a C0, DEL, or C1 control character.
-    ControlCharacter,
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Framing => f.write_str("invalid OSC 7501 framing"),
-            Self::Limit(limit) => write!(f, "OSC 7501 {limit:?} limit exceeded"),
-            Self::InvalidBase64 => f.write_str("invalid base64 text"),
-            Self::InvalidUtf8 => f.write_str("invalid UTF-8 text"),
-            Self::ControlCharacter => f.write_str("control character in text"),
-        }
-    }
-}
-
-impl core::error::Error for ParseError {}
-
-impl fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::BufferTooSmall => "text destination too small",
-            Self::InvalidBase64 => "invalid base64",
-            Self::InvalidUtf8 => "invalid UTF-8",
-        })
-    }
-}
-
-impl core::error::Error for DecodeError {}

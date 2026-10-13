@@ -1,4 +1,4 @@
-use crate::DecodeError;
+use crate::Error;
 
 const INVALID: u8 = 255;
 const fn table() -> [u8; 256] {
@@ -13,7 +13,7 @@ const fn table() -> [u8; 256] {
 }
 const DECODE: [u8; 256] = table();
 
-pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeError> {
+pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
     let padding = input.iter().rev().take_while(|&&byte| byte == b'=').count();
     let length = input.len() - padding;
     let remainder = length % 4;
@@ -21,7 +21,7 @@ pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeErr
         || remainder == 1
         || (padding != 0 && (!input.len().is_multiple_of(4) || padding != 4 - remainder))
     {
-        return Err(DecodeError::InvalidBase64);
+        return Err(Error::InvalidBase64);
     }
     let needed = length / 4 * 3
         + match remainder {
@@ -30,7 +30,7 @@ pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeErr
             _ => 0,
         };
     if needed > output.len() {
-        return Err(DecodeError::BufferTooSmall);
+        return Err(Error::BufferTooSmall);
     }
     let mut written = 0;
     let (chunks, tail) = input[..length].as_chunks::<4>();
@@ -42,7 +42,7 @@ pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeErr
             DECODE[chunk[3] as usize],
         ];
         if (a | b | c | d) == INVALID {
-            return Err(DecodeError::InvalidBase64);
+            return Err(Error::InvalidBase64);
         }
         output[written] = a << 2 | b >> 4;
         output[written + 1] = b << 4 | c >> 2;
@@ -53,17 +53,17 @@ pub(crate) fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, DecodeErr
         let a = DECODE[tail[0] as usize];
         let b = DECODE[tail[1] as usize];
         if (a | b) == INVALID {
-            return Err(DecodeError::InvalidBase64);
+            return Err(Error::InvalidBase64);
         }
         output[written] = a << 2 | b >> 4;
         if tail.len() == 2 {
             if b & 15 != 0 {
-                return Err(DecodeError::InvalidBase64);
+                return Err(Error::InvalidBase64);
             }
         } else {
             let c = DECODE[tail[2] as usize];
             if c == INVALID || c & 3 != 0 {
-                return Err(DecodeError::InvalidBase64);
+                return Err(Error::InvalidBase64);
             }
             output[written + 1] = b << 4 | c >> 2;
         }

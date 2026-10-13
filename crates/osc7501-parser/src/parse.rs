@@ -1,7 +1,7 @@
 use crate::{
-    Action, AppId, Capabilities, DecodeError, EncodedText, Event, Kind, Limit, MAX_APP, MAX_DEPTH,
+    Action, AppId, Capabilities, EncodedText, Error, Event, Kind, Limit, MAX_APP, MAX_DEPTH,
     MAX_ID, MAX_KEY, MAX_MESSAGE, MAX_MESSAGE_ENCODED, MAX_SEGMENT, MAX_SEQUENCE, MAX_TITLE,
-    MAX_TITLE_ENCODED, ParseError, Progress, RecordId, Report, State, base64,
+    MAX_TITLE_ENCODED, Progress, RecordId, Report, State, base64,
 };
 
 const PREFIX: &[u8] = b"\x1b]7501;";
@@ -14,18 +14,18 @@ const PREFIX: &[u8] = b"\x1b]7501;";
 /// pairs overridden later. Nothing is returned until validation completes.
 ///
 /// # Errors
-/// Returns [`ParseError`] for bad framing or a report rejected as a whole.
-pub fn parse_sequence(input: &[u8]) -> Result<Option<Event<'_>>, ParseError> {
+/// Returns [`Error`] for bad framing or a report rejected as a whole.
+pub fn parse_sequence(input: &[u8]) -> Result<Option<Event<'_>>, Error> {
     if input.len() > MAX_SEQUENCE {
-        return Err(ParseError::Limit(Limit::Sequence));
+        return Err(Error::Limit(Limit::Sequence));
     }
-    let rest = input.strip_prefix(PREFIX).ok_or(ParseError::Framing)?;
+    let rest = input.strip_prefix(PREFIX).ok_or(Error::Framing)?;
     let body = rest
         .strip_suffix(b"\x1b\\")
         .or_else(|| rest.strip_suffix(b"\x07"))
-        .ok_or(ParseError::Framing)?;
+        .ok_or(Error::Framing)?;
     if body.iter().any(|&byte| matches!(byte, 0x1b | 0x07)) {
-        return Err(ParseError::Framing);
+        return Err(Error::Framing);
     }
     parse(body)
 }
@@ -36,10 +36,10 @@ pub fn parse_sequence(input: &[u8]) -> Result<Option<Event<'_>>, ParseError> {
 /// Use [`parse_sequence`] to accept a BEL frame at the exact 4096-byte boundary.
 ///
 /// # Errors
-/// Returns [`ParseError`] if a report violates a hard cap or text rule.
-pub fn parse_body(body: &[u8]) -> Result<Option<Event<'_>>, ParseError> {
+/// Returns [`Error`] if a report violates a hard cap or text rule.
+pub fn parse_body(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
     if body.len() > MAX_SEQUENCE - PREFIX.len() - 2 {
-        return Err(ParseError::Limit(Limit::Sequence));
+        return Err(Error::Limit(Limit::Sequence));
     }
     parse(body)
 }
@@ -58,13 +58,13 @@ fn value_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b',' | b'+' | b'/' | b'=' | b'-')
 }
 
-fn pairs(body: &[u8]) -> impl Iterator<Item = Result<(&[u8], &[u8]), ParseError>> {
+fn pairs(body: &[u8]) -> impl Iterator<Item = Result<(&[u8], &[u8]), Error>> {
     body.split(|&byte| byte == b':').filter_map(|pair| {
         let equals = pair.iter().position(|&byte| byte == b'=')?;
         let key = trim(&pair[..equals]);
         let value = trim(&pair[equals + 1..]);
         if key.len() > MAX_KEY {
-            return Some(Err(ParseError::Limit(Limit::Key)));
+            return Some(Err(Error::Limit(Limit::Key)));
         }
         let limit = match key {
             b"msg" if value.len() > MAX_MESSAGE_ENCODED => Some(Limit::Message),
@@ -82,7 +82,7 @@ fn pairs(body: &[u8]) -> impl Iterator<Item = Result<(&[u8], &[u8]), ParseError>
             _ => None,
         };
         if let Some(limit) = limit {
-            return Some(Err(ParseError::Limit(limit)));
+            return Some(Err(Error::Limit(limit)));
         }
         if key.is_empty()
             || !key.iter().all(u8::is_ascii_lowercase)
@@ -98,18 +98,17 @@ fn pairs(body: &[u8]) -> impl Iterator<Item = Result<(&[u8], &[u8]), ParseError>
     })
 }
 
-fn ascii(bytes: &[u8]) -> Result<&str, ParseError> {
-    core::str::from_utf8(bytes).map_err(|_| ParseError::InvalidUtf8)
+fn ascii(bytes: &[u8]) -> Result<&str, Error> {
+    core::str::from_utf8(bytes).map_err(|_| Error::InvalidUtf8)
 }
 
-fn text(value: &[u8], cap: usize, limit: Limit) -> Result<EncodedText<'_>, ParseError> {
+fn text(value: &[u8], cap: usize, limit: Limit) -> Result<EncodedText<'_>, Error> {
     let mut scratch = [0; MAX_MESSAGE];
     let length = base64::decode(value, &mut scratch[..cap]).map_err(|error| match error {
-        DecodeError::BufferTooSmall => ParseError::Limit(limit),
-        DecodeError::InvalidBase64 => ParseError::InvalidBase64,
-        DecodeError::InvalidUtf8 => ParseError::InvalidUtf8,
+        Error::BufferTooSmall => Error::Limit(limit),
+        error => error,
     })?;
-    let decoded = core::str::from_utf8(&scratch[..length]).map_err(|_| ParseError::InvalidUtf8)?;
+    let decoded = core::str::from_utf8(&scratch[..length]).map_err(|_| Error::InvalidUtf8)?;
     let controls = if decoded.is_ascii() {
         decoded.bytes().fold(0_u8, |found, byte| {
             found | u8::from(byte < 32 || byte == 127)
@@ -118,7 +117,7 @@ fn text(value: &[u8], cap: usize, limit: Limit) -> Result<EncodedText<'_>, Parse
         decoded.chars().any(char::is_control)
     };
     if controls {
-        return Err(ParseError::ControlCharacter);
+        return Err(Error::ControlCharacter);
     }
     Ok(EncodedText {
         encoded: ascii(value)?,
@@ -143,7 +142,7 @@ fn progress(value: &[u8]) -> Option<Progress> {
     Progress::new(percentage)
 }
 
-fn parse(body: &[u8]) -> Result<Option<Event<'_>>, ParseError> {
+fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
     let body = trim(body);
     if body == b"?" {
         return Ok(Some(Event::Query));

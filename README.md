@@ -5,7 +5,7 @@ Latest stable Rust, edition 2024. All workspace crates live in `crates/`.
 
 | Crate | What it does |
 | --- | --- |
-| `osc7501-parser` | Dependency-free `no_std` parsing with borrowed results and bounded streaming |
+| `osc7501-parser` | `no_std` parsing with borrowed results and bounded streaming |
 | `osc7501` | Typed status emission through your application's existing writer |
 
 ## Send from a TUI
@@ -46,6 +46,10 @@ Use `parse_body` from an existing OSC dispatcher. Use `Decoder::feed` for
 arbitrary byte chunks; callback data borrows its 4096-byte inline buffer.
 Missing/unknown state and invalid ids return `Ok(None)`. Hard-limit violations,
 invalid base64/UTF-8, and decoded controls reject the entire report.
+
+Parsing, streaming, and text decoding use `osc7501_parser::Error` for failures.
+Both crates inherit `thiserror` from the workspace with default features disabled,
+preserving the parser's `no_std` support.
 
 ## Resource target
 

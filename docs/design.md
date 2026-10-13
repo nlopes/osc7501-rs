@@ -6,8 +6,8 @@ All workspace members live in `crates/`:
 
 | Crate | Responsibility | Runtime dependencies |
 | --- | --- | --- |
-| `osc7501-parser` | Wire parsing, validation, types, capabilities, bounded streaming | None; `no_std` |
-| `osc7501` | Borrowed producer builder, bounded encoding, output-writer integration | Local parser only |
+| `osc7501-parser` | Wire parsing, validation, types, capabilities, bounded streaming | `thiserror` without default features; `no_std` |
+| `osc7501` | Borrowed producer builder, bounded encoding, output-writer integration | Local parser and `thiserror` without default features |
 
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
@@ -15,6 +15,13 @@ events (`Ok(Some(...))`). It never exposes partially validated record updates.
 Validated `RecordId`, `AppId`, and `Progress` reject invalid producer identities
 or percentages without allocating. State-specific producer fields are checked
 before output begins.
+
+Parsing, streaming, and text decoding share `Error`. `BufferTooSmall` means the
+caller supplied too little decode storage; `Limit` means input exceeded a
+protocol cap. Both crates inherit `thiserror` from the workspace manifest with
+its `std` feature disabled. The generated error implementations do not allocate.
+The derive macro adds host build dependencies. The producer's `Error::Io`
+preserves the writer error as its source.
 
 `Report<'a>` borrows identifiers and base64 input. `EncodedText` is validated
 eagerly, then decoded into caller storage only when displayed. This avoids
@@ -89,7 +96,7 @@ Keep report parsing independent of terminal UX and unrelated OSC mapping.
 
 Start with a portable safe byte parser and a 256-byte base64 lookup table.
 Use independent decoding-oracle tests before optimizing. Bench body dispatch,
-complete framing, and chunked streaming separately. Keep the production graph
-dependency-free; benchmark/test dependencies never enter users' binaries.
+complete framing, and chunked streaming separately. Keep parsing and text
+decoding allocation-free; benchmark/test dependencies never enter users' binaries.
 Add SIMD or architecture-specific paths only when comparative evidence shows
 a useful benefit without compromising portability, bounds, or binary size.

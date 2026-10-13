@@ -1,4 +1,4 @@
-use crate::{Event, Limit, MAX_SEQUENCE, ParseError, parse_sequence};
+use crate::{Error, Event, Limit, MAX_SEQUENCE, parse_sequence};
 
 const PREFIX: &[u8] = b"\x1b]7501;";
 
@@ -52,7 +52,7 @@ impl Decoder {
 
     /// Consumes bytes and invokes the callback for accepted events or rejected
     /// target frames. Ignored reports and unrelated output produce no callback.
-    pub fn feed(&mut self, input: &[u8], mut on_event: impl FnMut(Result<Event<'_>, ParseError>)) {
+    pub fn feed(&mut self, input: &[u8], mut on_event: impl FnMut(Result<Event<'_>, Error>)) {
         for &byte in input {
             match self.phase {
                 Phase::Ground => {
@@ -86,7 +86,7 @@ impl Decoder {
                     let escaped = matches!(self.phase, Phase::BodyEscape);
                     let terminated = byte == 0x07 || (escaped && byte == b'\\');
                     if self.length == MAX_SEQUENCE {
-                        on_event(Err(ParseError::Limit(Limit::Sequence)));
+                        on_event(Err(Error::Limit(Limit::Sequence)));
                         self.phase = if terminated {
                             Phase::Ground
                         } else {

@@ -5,6 +5,10 @@ unmaintained = "workspace"
 [licenses]
 allow = ["MIT"]
 
+[[licenses.exceptions]]
+name = "unicode-ident"
+allow = ["MIT", "Unicode-3.0"]
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

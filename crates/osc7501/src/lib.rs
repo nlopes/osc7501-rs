@@ -7,10 +7,7 @@
 
 mod constants;
 
-use std::{
-    fmt,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 use constants::ALPHABET;
 
@@ -196,44 +193,21 @@ pub fn write_query(output: &mut impl Write) -> io::Result<()> {
 }
 
 /// Validation or transport failure while emitting a report.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// A title or message exceeds the decoded byte cap.
+    #[error("status text exceeds its byte cap")]
     TextTooLong,
     /// Text contains a forbidden control character.
+    #[error("status text contains a control character")]
     ControlCharacter,
     /// Kind or progress is incompatible with this state.
+    #[error("status field is incompatible with its state")]
     IncompatibleField,
     /// The encoded frame exceeds available space.
+    #[error("status frame exceeds its byte cap")]
     FrameTooLarge,
     /// The caller's output writer failed.
-    Io(io::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TextTooLong => f.write_str("status text exceeds its byte cap"),
-            Self::ControlCharacter => f.write_str("status text contains a control character"),
-            Self::IncompatibleField => f.write_str("status field is incompatible with its state"),
-            Self::FrameTooLarge => f.write_str("status frame exceeds its byte cap"),
-            Self::Io(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let Self::Io(error) = self {
-            Some(error)
-        } else {
-            None
-        }
-    }
+    #[error("{0}")]
+    Io(#[from] io::Error),
 }

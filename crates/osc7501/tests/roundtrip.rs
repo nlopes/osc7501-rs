@@ -1,7 +1,10 @@
 //! Producer-to-parser conformance and validation before writes.
 use osc7501::{AppId, Error, Kind, Progress, RecordId, State, Status, write_query};
 use osc7501_parser::{Action, Event, MAX_MESSAGE, parse_sequence};
-use std::io::{self, Write};
+use std::{
+    error::Error as _,
+    io::{self, Write},
+};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -186,9 +189,15 @@ impl Write for FailingWriter {
 }
 
 #[test]
-fn io_failures_are_returned_to_the_caller() {
-    assert!(matches!(
-        Status::new(State::Idle).write_to(&mut FailingWriter),
-        Err(Error::Io(_))
-    ));
+fn io_failures_are_returned_to_the_caller() -> TestResult {
+    let error = Status::new(State::Idle)
+        .write_to(&mut FailingWriter)
+        .err()
+        .ok_or("expected I/O failure")?;
+    assert!(matches!(error, Error::Io(_)));
+    assert_eq!(error.to_string(), "test failure");
+    let source = error.source().ok_or("missing I/O error source")?;
+    assert!(source.is::<io::Error>());
+    assert_eq!(source.to_string(), "test failure");
+    Ok(())
 }

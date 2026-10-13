@@ -13,6 +13,7 @@ name = "osc7501"
 
 [dependencies]
 osc7501-parser = { path = "../osc7501-parser", version = "0.1.0" }
+thiserror.workspace = true
 
 [lints]
 workspace = true

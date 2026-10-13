@@ -4,7 +4,7 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
 };
 use osc7501_parser::{
-    Action, AppId, Capabilities, Decoder, Event, Kind, Limit, MAX_MESSAGE, ParseError, Progress,
+    Action, AppId, Capabilities, Decoder, Error, Event, Kind, Limit, MAX_MESSAGE, Progress,
     RecordId, Report, State, parse_body, parse_sequence,
 };
 
@@ -65,7 +65,7 @@ fn rejects_incomplete_wrong_and_multiple_frames() {
         b"\x1b]7501;state=idle\x07extra\x07",
         b"\x1b]7501;state=idle\x07\x1b]7501;state=done\x07",
     ] {
-        assert_eq!(parse_sequence(frame), Err(ParseError::Framing));
+        assert_eq!(parse_sequence(frame), Err(Error::Framing));
     }
 }
 
@@ -236,7 +236,7 @@ fn rejects_bad_base64_padding_alphabet_and_trailing_bits() {
         let body = format!("state=done:msg={encoded}");
         assert_eq!(
             parse_body(body.as_bytes()),
-            Err(ParseError::InvalidBase64),
+            Err(Error::InvalidBase64),
             "{encoded}"
         );
     }
@@ -251,7 +251,7 @@ fn rejects_invalid_utf8() {
         vec![0xe2, 0x82],
     ] {
         let body = format!("state=idle:msg={}", STANDARD.encode(bytes));
-        assert_eq!(parse_body(body.as_bytes()), Err(ParseError::InvalidUtf8));
+        assert_eq!(parse_body(body.as_bytes()), Err(Error::InvalidUtf8));
     }
 }
 
@@ -263,10 +263,7 @@ fn rejects_every_c0_del_and_c1_control_for_both_text_fields() -> TestResult {
             .to_string();
         for key in ["title", "msg"] {
             let body = format!("state=done:{key}={}", STANDARD.encode(&text));
-            assert_eq!(
-                parse_body(body.as_bytes()),
-                Err(ParseError::ControlCharacter)
-            );
+            assert_eq!(parse_body(body.as_bytes()), Err(Error::ControlCharacter));
         }
     }
     Ok(())
@@ -294,14 +291,38 @@ fn last_valid_text_wins_and_empty_text_is_present() -> TestResult {
 }
 
 #[test]
+fn parsing_and_decoding_share_one_error_type() -> TestResult {
+    fn decode_message<'a>(input: &[u8], output: &'a mut [u8]) -> Result<Option<&'a str>, Error> {
+        let Some(Event::Report(report)) = parse_body(input)? else {
+            return Ok(None);
+        };
+        report
+            .message
+            .map(|text| text.decode_into(output))
+            .transpose()
+    }
+
+    assert_eq!(
+        decode_message(b"state=done:msg=T0s=", &mut [0; 2])?,
+        Some("OK")
+    );
+    assert_eq!(
+        decode_message(b"state=done:msg=T0s=", &mut [0; 1]),
+        Err(Error::BufferTooSmall)
+    );
+    assert_eq!(
+        decode_message(b"state=done:msg=A", &mut [0; 2]),
+        Err(Error::InvalidBase64)
+    );
+    Ok(())
+}
+
+#[test]
 fn decoding_requires_only_exact_destination_capacity() -> TestResult {
     let value = report(b"state=done:msg=T0s=")?
         .message
         .ok_or("missing message")?;
-    assert_eq!(
-        value.decode_into(&mut [0; 1]),
-        Err(osc7501_parser::DecodeError::BufferTooSmall)
-    );
+    assert_eq!(value.decode_into(&mut [0; 1]), Err(Error::BufferTooSmall));
     assert_eq!(value.decode_into(&mut [0; 2])?, "OK");
     Ok(())
 }
@@ -327,7 +348,7 @@ fn checks_decoded_message_limit_independently_of_encoded_limit() {
     let body = format!("state=done:msg={}", STANDARD.encode("x".repeat(2049)));
     assert_eq!(
         parse_body(body.as_bytes()),
-        Err(ParseError::Limit(Limit::Message))
+        Err(Error::Limit(Limit::Message))
     );
 }
 
@@ -336,7 +357,7 @@ fn checks_every_key_limit_including_unknown_and_overridden_keys() {
     assert!(parse_body(b"state=idle:abcdefghijklmnop=x").is_ok());
     assert_eq!(
         parse_body(b"state=idle:abcdefghijklmnopq=x"),
-        Err(ParseError::Limit(Limit::Key))
+        Err(Error::Limit(Limit::Key))
     );
 }
 
@@ -349,7 +370,7 @@ fn checks_every_known_encoded_limit_even_if_overridden() {
         ("id", 128, Limit::Id),
     ] {
         let body = format!("state=idle:{key}={}:{key}=a", "a".repeat(cap + 1));
-        assert_eq!(parse_body(body.as_bytes()), Err(ParseError::Limit(limit)));
+        assert_eq!(parse_body(body.as_bytes()), Err(Error::Limit(limit)));
     }
 }
 
@@ -359,13 +380,10 @@ fn enforces_id_depth_segment_and_total_limits() {
     assert!(RecordId::new(eight).is_some());
     assert_eq!(
         parse_body(b"state=idle:id=a/a/a/a/a/a/a/a/a"),
-        Err(ParseError::Limit(Limit::Id))
+        Err(Error::Limit(Limit::Id))
     );
     let body = format!("state=idle:id={}", "a".repeat(33));
-    assert_eq!(
-        parse_body(body.as_bytes()),
-        Err(ParseError::Limit(Limit::Id))
-    );
+    assert_eq!(parse_body(body.as_bytes()), Err(Error::Limit(Limit::Id)));
     let maximum = format!(
         "{}/{}/{}/{}",
         "a".repeat(32),
@@ -393,7 +411,7 @@ fn complete_sequence_limit_counts_prefix_and_each_terminator() -> TestResult {
         );
         assert_eq!(
             parse_sequence(too_long.as_bytes()),
-            Err(ParseError::Limit(Limit::Sequence))
+            Err(Error::Limit(Limit::Sequence))
         );
     }
     Ok(())
@@ -448,7 +466,7 @@ fn streaming_works_across_every_two_chunk_split() -> TestResult {
         let mut decoder = Decoder::new();
         let mut events = 0;
         let mut result = Ok(());
-        let mut receive = |event: Result<Event<'_>, ParseError>| match event {
+        let mut receive = |event: Result<Event<'_>, Error>| match event {
             Ok(event) => {
                 assert_eq!(event, expected);
                 events += 1;
@@ -499,7 +517,7 @@ fn streaming_drains_oversized_frames_and_recovers() -> TestResult {
     for chunk in bytes.as_bytes().chunks(31) {
         decoder.feed(chunk, |event| match event {
             Err(error) => {
-                assert_eq!(error, ParseError::Limit(Limit::Sequence));
+                assert_eq!(error, Error::Limit(Limit::Sequence));
                 errors += 1;
             }
             Ok(Event::Report(value)) => {
