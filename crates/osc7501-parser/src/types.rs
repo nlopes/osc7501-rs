@@ -298,9 +298,18 @@ impl<'a> Report<'a> {
     }
 }
 
-/// Feature detection reply. Explicit lists retain future, unknown tokens.
+const DEFAULT_STATES: &[State] = &[
+    State::Idle,
+    State::Working,
+    State::Done,
+    State::Blocked,
+    State::Error,
+];
+const DEFAULT_KINDS: &[Kind] = &[Kind::Permission, Kind::Question, Kind::Auth];
+
+/// Feature detection reply. Unknown state and kind names are skipped.
 ///
-/// Missing lists use the revision 0.4 defaults.
+/// Missing lists use the fixed revision 0.4 defaults.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capabilities<'a> {
     pub(crate) states: Option<&'a str>,
@@ -308,32 +317,36 @@ pub struct Capabilities<'a> {
 }
 
 impl Capabilities<'_> {
-    /// Iterates advertised states, including future states.
-    pub fn states(&self) -> impl Iterator<Item = &str> {
+    /// Iterates advertised states recognized by this crate.
+    pub fn states(&self) -> impl Iterator<Item = State> {
+        let defaults = self.states.map_or(DEFAULT_STATES, |_| &[]);
         self.states
-            .unwrap_or("idle,working,done,blocked,error")
+            .unwrap_or_default()
             .split(',')
-            .filter(|value| !value.is_empty())
+            .filter_map(State::parse)
+            .chain(defaults.iter().copied())
     }
 
-    /// Iterates advertised blocking reasons, including future reasons.
-    pub fn kinds(&self) -> impl Iterator<Item = &str> {
+    /// Iterates advertised blocking reasons recognized by this crate.
+    pub fn kinds(&self) -> impl Iterator<Item = Kind> {
+        let defaults = self.kinds.map_or(DEFAULT_KINDS, |_| &[]);
         self.kinds
-            .unwrap_or("permission,question,auth")
+            .unwrap_or_default()
             .split(',')
-            .filter(|value| !value.is_empty())
+            .filter_map(Kind::parse)
+            .chain(defaults.iter().copied())
     }
 
     /// Checks whether a known state is supported.
     #[must_use]
     pub fn supports_state(&self, state: State) -> bool {
-        self.states().any(|value| value == state.as_str())
+        self.states().any(|value| value == state)
     }
 
     /// Checks whether a known blocking reason is supported.
     #[must_use]
     pub fn supports_kind(&self, kind: Kind) -> bool {
-        self.kinds().any(|value| value == kind.as_str())
+        self.kinds().any(|value| value == kind)
     }
 }
 

@@ -39,10 +39,10 @@ or its record id is invalid. Invalid app ids and progress values are treated
 as absent. Invalid text or a report limit violation returns `Err`; no partial
 report is returned. Every report replaces all fields of its addressed record.
 
-Capability replies retain future state and kind tokens and ignore other pairs.
-Missing lists use the fixed revision 0.4 defaults; explicit empty lists remain
-empty. A bare `Event::Query` can be a query or a default reply. Use stream
-direction and pending-query state to distinguish them.
+Capability replies yield known `State` and `Kind` values and skip unknown names
+and other pairs. Missing lists use the fixed revision 0.4 defaults; explicit
+empty lists remain empty. A bare `Event::Query` can be a query or a default
+reply. Use stream direction and pending-query state to distinguish them.
 
 Complete frames are limited to 4096 bytes. Decoded messages are limited to
 2048 bytes and titles to 192 bytes. Parsing, streaming, and text decoding use

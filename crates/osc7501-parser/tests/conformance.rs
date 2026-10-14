@@ -449,17 +449,23 @@ fn query_and_default_capabilities() -> TestResult {
 }
 
 #[test]
-fn capabilities_preserve_future_tokens_and_last_values() -> TestResult {
+fn capabilities_skip_unknown_tokens_and_keep_last_values() -> TestResult {
     let Some(Event::Capabilities(value)) = parse_body(
-        b"? : states=idle : states=working,future : kinds=auth,biometric : extension=a",
+        b"? : states=idle : states=working,future,done : kinds=auth,biometric,permission : extension=a",
     )?
     else {
         return Err("expected capabilities".into());
     };
-    assert_eq!(value.states().collect::<Vec<_>>(), ["working", "future"]);
+    assert_eq!(
+        value.states().collect::<Vec<_>>(),
+        [State::Working, State::Done]
+    );
     assert!(value.supports_state(State::Working));
     assert!(!value.supports_state(State::Idle));
-    assert_eq!(value.kinds().collect::<Vec<_>>(), ["auth", "biometric"]);
+    assert_eq!(
+        value.kinds().collect::<Vec<_>>(),
+        [Kind::Auth, Kind::Permission]
+    );
     Ok(())
 }
 
@@ -478,8 +484,8 @@ fn capability_extensions_ignore_report_limits() -> TestResult {
         let Some(Event::Capabilities(capabilities)) = parse_body(body.as_bytes())? else {
             return Err("expected capabilities".into());
         };
-        assert_eq!(capabilities.states().collect::<Vec<_>>(), ["working"]);
-        assert_eq!(capabilities.kinds().collect::<Vec<_>>(), ["auth"]);
+        assert_eq!(capabilities.states().collect::<Vec<_>>(), [State::Working]);
+        assert_eq!(capabilities.kinds().collect::<Vec<_>>(), [Kind::Auth]);
 
         let frame = format!("\x1b]7501;{body}\x1b\\");
         assert_eq!(
@@ -534,17 +540,34 @@ fn capability_replies_keep_the_sequence_limit() -> TestResult {
 }
 
 #[test]
-fn empty_capabilities_are_distinct_from_absent_lists() -> TestResult {
-    let Some(Event::Capabilities(value)) = parse_body(b"?:states=:kinds=")? else {
-        return Err("expected capabilities".into());
-    };
-    assert_eq!(value.states().count(), 0);
-    assert_eq!(value.kinds().count(), 0);
+fn empty_and_unknown_capabilities_are_distinct_from_absent_lists() -> TestResult {
+    for body in [
+        b"?:states=:kinds=".as_slice(),
+        b"?:states=future:kinds=biometric",
+    ] {
+        let Some(Event::Capabilities(value)) = parse_body(body)? else {
+            return Err("expected capabilities".into());
+        };
+        assert_eq!(value.states().count(), 0);
+        assert_eq!(value.kinds().count(), 0);
+    }
     let Some(Event::Capabilities(value)) = parse_body(b"?:future=ok")? else {
         return Err("expected capabilities".into());
     };
-    assert_eq!(value.states().count(), 5);
-    assert_eq!(value.kinds().count(), 3);
+    assert_eq!(
+        value.states().collect::<Vec<_>>(),
+        [
+            State::Idle,
+            State::Working,
+            State::Done,
+            State::Blocked,
+            State::Error
+        ]
+    );
+    assert_eq!(
+        value.kinds().collect::<Vec<_>>(),
+        [Kind::Permission, Kind::Question, Kind::Auth]
+    );
     Ok(())
 }
 

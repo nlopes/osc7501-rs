@@ -95,8 +95,8 @@ OSC 7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth
 ```
 
 Detection is optional. Missing lists imply these fixed defaults; explicit empty
-lists remain empty. Retain future tokens for callers to inspect. `clear` is not
-an advertised state. Ignore reply extensions, including their report-field
+lists remain empty. The parser skips unknown state and kind names. `clear` is
+not an advertised state. Ignore reply extensions, including their report-field
 names and sizes. Apply the complete-frame cap to replies. A bare query and a
 default reply are byte-identical, so the caller supplies direction/pending-query
 context.
