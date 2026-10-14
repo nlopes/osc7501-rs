@@ -81,12 +81,22 @@ invalid record id. Invalid app ids and progress values are treated as absent.
 
 ## Develop
 
+Both crates support Rust 1.88 and later. CI runs strict Clippy, nextest, and
+doctests with Rust 1.88 and current stable on Linux, macOS, and Windows. The
+parser is also checked on `thumbv7em-none-eabihf`, a target without `std`, with
+Rust 1.88 and current stable.
+
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings -D clippy::todo
+cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --locked
+cargo test --workspace --doc --locked
 cargo deny --all-features --locked check
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo +1.88.0 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.88.0 nextest run --workspace --all-targets --locked
+cargo +1.88.0 test --workspace --doc --locked
+cargo check -p osc7501-parser --lib --target thumbv7em-none-eabihf --locked
 ```
 
 The checks use [cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/)
