@@ -9,6 +9,8 @@ All workspace members live in `crates/`:
 | `osc7501-parser` | Wire parsing, validation, types, capabilities, bounded streaming | `thiserror` without default features; `no_std` |
 | `osc7501` | Borrowed producer builder, bounded encoding, output-writer integration | Local parser and `thiserror` without default features |
 
+The producer's Cargo package is `osc7501-rs`; its Rust library is `osc7501`.
+
 `osc7501::parser` exposes the complete parser crate. `AppId`, `RecordId`,
 `Progress`, `State`, and `Kind` are also available at the emission crate's root
 for building reports. Parser-only types, functions, and limits use the `parser`
@@ -16,6 +18,9 @@ namespace. Code that only parses reports can depend on `osc7501-parser` directly
 
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
+Capability replies read only `states` and `kinds`. Other pairs are ignored,
+including keys and values that exceed report-field limits. The complete-frame
+cap still applies to replies.
 `Report` and `Capabilities` are constructed by parsing. Their fields are
 read-only outside the parser crate. Report getters preserve the parser's
 validation guarantees, including the states that allow `kind` and `progress`.
@@ -89,9 +94,12 @@ other. `Status::clear().id(id)` removes a finished subtree when appropriate.
 - The producer owns a 4096-byte local encoding buffer during emission.
 - No recursion, per-pair collections, dynamic strings, caches, or task registries.
 
-The largest valid revision 0.4 report is 3220 bytes, with all fields at their
-limits. It fits in the producer's 4096-byte buffer. The producer test checks
-the exact length, parses the result, and verifies zero heap allocations.
+The largest report this producer emits is 3220 bytes, with each supported field
+present once at its limit. The specification sets a 4096-byte complete-frame
+cap and says the largest legal report is under 3300 bytes. The parser keeps the
+4096-byte bound for frames with unknown keys or repeated pairs, which the wire
+grammar permits. The producer test checks its exact maximum length, parses the
+result, and verifies zero heap allocations.
 
 These are library buffers, not a whole-process RSS promise. The Rust standard
 runtime, dynamic loader, TUI framework, threads, and caller-retained reports

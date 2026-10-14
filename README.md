@@ -4,13 +4,27 @@ Rust libraries for **OSC 7501 Program Status Protocol, revision 0.4**. A program
 can tell its terminal that it is idle, working, waiting for the user, done, or
 has failed. The terminal decides how to display that status.
 
-| Crate | What it does |
-| --- | --- |
-| `osc7501` | Send status reports from a terminal application |
-| `osc7501-parser` | Parse status reports and terminal capability replies |
+| Cargo package | Rust library | What it does |
+| --- | --- | --- |
+| `osc7501-rs` | `osc7501` | Send status reports from a terminal application |
+| `osc7501-parser` | `osc7501_parser` | Parse status reports and terminal capability replies |
 
 The parser can be used on its own and works without `std`. Both crates process
 reports without heap allocation.
+
+## Install
+
+To send reports, add:
+
+```toml
+[dependencies]
+osc7501 = { package = "osc7501-rs", version = "0.1" }
+```
+
+For parsing alone, add `osc7501-parser = "0.1"` instead.
+
+Each published crate includes its own README and license text. Its README also
+provides the crate's API overview and executable example on docs.rs.
 
 ## Send from a TUI
 
@@ -129,4 +143,5 @@ and [cargo-deny](https://embarkstudios.github.io/cargo-deny/).
 - [Protocol notes](docs/protocol.md)
 - [Design decisions](docs/design.md)
 - [Performance measurements](docs/performance.md)
+- [Release procedure](docs/releasing.md)
 - [Protocol source](https://www.superlogical.com/rex/docs/build/program-status)

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 repository = "https://github.com/nlopes/osc7501-rs"
-publish = false
+publish = ["crates-io"]
 license = "MIT"
 
 [workspace.dependencies]

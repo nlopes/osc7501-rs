@@ -1,9 +1,4 @@
-//! Allocation-free parser for Program Status Protocol revision 0.4.
-//!
-//! [`parse_sequence`] parses a complete OSC; [`parse_body`] integrates with a
-//! terminal's existing OSC dispatcher; [`Decoder`] accepts arbitrary byte chunks.
-//! Reports borrow their input. Text is validated before any report is returned,
-//! then decoded on demand into caller-owned storage.
+#![doc = include_str!("../README.md")]
 #![no_std]
 
 mod base64;

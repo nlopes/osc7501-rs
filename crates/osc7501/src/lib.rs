@@ -1,9 +1,4 @@
-//! OSC 7501 emission through an application's existing output writer.
-//!
-//! Validation happens before writing any bytes. Emission uses fixed-size stack
-//! storage and no heap allocation. Share and lock your TUI's output writer so
-//! status frames cannot interleave with screen updates. Flush at your chosen
-//! output boundary; this crate does not flush implicitly.
+#![doc = include_str!("../README.md")]
 
 mod constants;
 

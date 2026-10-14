@@ -1,7 +1,7 @@
 # Program Status Protocol: implementation contract
 
 Source: [Rex specification](https://www.superlogical.com/rex/docs/build/program-status),
-read 2026-10-13. Baseline: revision **0.4**, dated 2026-10-10.
+read 2026-10-14. Baseline: revision **0.4**, dated 2026-10-10.
 This is an engineering extraction; the linked specification remains authoritative.
 
 ## 1. Motivation
@@ -96,8 +96,10 @@ OSC 7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth
 
 Detection is optional. Missing lists imply these fixed defaults; explicit empty
 lists remain empty. Retain future tokens for callers to inspect. `clear` is not
-an advertised state. Ignore reply extensions. A bare query and a default reply
-are byte-identical, so the caller supplies direction/pending-query context.
+an advertised state. Ignore reply extensions, including their report-field
+names and sizes. Apply the complete-frame cap to replies. A bare query and a
+default reply are byte-identical, so the caller supplies direction/pending-query
+context.
 Timeout is an application choice. Primary DA sent after the query can provide
 a negative result when its response arrives before the status reply.
 
@@ -123,6 +125,11 @@ Host UI should identify the originating terminal and limit notification rates.
 Over-cap reports are rejected atomically. A terminal store at capacity evicts
 the record with the oldest update, not the oldest read. Storage policy is
 outside this parser; no records are retained by either implemented crate.
+
+The source also notes that the largest legal report is under 3300 bytes. This
+producer emits at most 3220 bytes with the supported fields present once. The
+parser accepts frames up to the 4096-byte cap, including unknown keys and
+repeated pairs allowed by the syntax above.
 
 ## 11. Relationship to other sequences
 

@@ -10,11 +10,12 @@ const PREFIX: &[u8] = b"\x1b]7501;";
 ///
 /// `Ok(None)` means an ignored report (missing/unknown state or invalid id).
 /// Malformed pairs and unknown keys are skipped, and duplicates use the last
-/// syntactically valid pair. Every text pair and hard cap is checked, including
-/// pairs overridden later. Nothing is returned until validation completes.
+/// syntactically valid pair. Every report text pair and hard cap is checked,
+/// including pairs overridden later. Capability replies ignore unknown pairs
+/// within the frame cap. Nothing is returned until validation completes.
 ///
 /// # Errors
-/// Returns [`Error`] for bad framing or a report rejected as a whole.
+/// Returns [`Error`] for invalid or oversized framing, or a rejected report.
 pub fn parse_sequence(input: &[u8]) -> Result<Option<Event<'_>>, Error> {
     if input.len() > MAX_SEQUENCE {
         return Err(Error::Limit(Limit::Sequence));
@@ -36,7 +37,8 @@ pub fn parse_sequence(input: &[u8]) -> Result<Option<Event<'_>>, Error> {
 /// Use [`parse_sequence`] to accept a BEL frame at the exact 4096-byte boundary.
 ///
 /// # Errors
-/// Returns [`Error`] if a report violates a hard cap or text rule.
+/// Returns [`Error`] for an oversized body or a report that violates a hard cap
+/// or text rule.
 pub fn parse_body(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
     if body.len() > MAX_SEQUENCE - PREFIX.len() - 2 {
         return Err(Error::Limit(Limit::Sequence));
@@ -58,31 +60,36 @@ fn value_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b',' | b'+' | b'/' | b'=' | b'-')
 }
 
-fn pairs(body: &[u8]) -> impl Iterator<Item = Result<(&[u8], &[u8]), Error>> {
-    body.split(|&byte| byte == b':').filter_map(|pair| {
+fn pairs(
+    body: &[u8],
+    check_report_limits: bool,
+) -> impl Iterator<Item = Result<(&[u8], &[u8]), Error>> {
+    body.split(|&byte| byte == b':').filter_map(move |pair| {
         let equals = pair.iter().position(|&byte| byte == b'=')?;
         let key = trim(&pair[..equals]);
         let value = trim(&pair[equals + 1..]);
-        if key.len() > MAX_KEY {
-            return Some(Err(Error::Limit(Limit::Key)));
-        }
-        let limit = match key {
-            b"msg" if value.len() > MAX_MESSAGE_ENCODED => Some(Limit::Message),
-            b"title" if value.len() > MAX_TITLE_ENCODED => Some(Limit::Title),
-            b"app" if value.len() > MAX_APP => Some(Limit::App),
-            b"id"
-                if value.len() > MAX_ID
-                    || value.split(|&byte| byte == b'/').count() > MAX_DEPTH
-                    || value
-                        .split(|&byte| byte == b'/')
-                        .any(|segment| segment.len() > MAX_SEGMENT) =>
-            {
-                Some(Limit::Id)
+        if check_report_limits {
+            if key.len() > MAX_KEY {
+                return Some(Err(Error::Limit(Limit::Key)));
             }
-            _ => None,
-        };
-        if let Some(limit) = limit {
-            return Some(Err(Error::Limit(limit)));
+            let limit = match key {
+                b"msg" if value.len() > MAX_MESSAGE_ENCODED => Some(Limit::Message),
+                b"title" if value.len() > MAX_TITLE_ENCODED => Some(Limit::Title),
+                b"app" if value.len() > MAX_APP => Some(Limit::App),
+                b"id"
+                    if value.len() > MAX_ID
+                        || value.split(|&byte| byte == b'/').count() > MAX_DEPTH
+                        || value
+                            .split(|&byte| byte == b'/')
+                            .any(|segment| segment.len() > MAX_SEGMENT) =>
+                {
+                    Some(Limit::Id)
+                }
+                _ => None,
+            };
+            if let Some(limit) = limit {
+                return Some(Err(Error::Limit(limit)));
+            }
         }
         if key.is_empty()
             || !key.iter().all(u8::is_ascii_lowercase)
@@ -156,7 +163,7 @@ fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
             states: None,
             kinds: None,
         };
-        for pair in pairs(body) {
+        for pair in pairs(body, false) {
             let (key, value) = pair?;
             match key {
                 b"states" => capabilities.states = Some(ascii(value)?),
@@ -177,7 +184,7 @@ fn parse(body: &[u8]) -> Result<Option<Event<'_>>, Error> {
         title: None,
         message: None,
     };
-    for pair in pairs(body) {
+    for pair in pairs(body, true) {
         let (key, value) = pair?;
         match key {
             b"state" => {

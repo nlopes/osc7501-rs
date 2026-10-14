@@ -464,6 +464,76 @@ fn capabilities_preserve_future_tokens_and_last_values() -> TestResult {
 }
 
 #[test]
+fn capability_extensions_ignore_report_limits() -> TestResult {
+    for (key, value) in [
+        ("app", "a".repeat(33)),
+        ("id", "a".repeat(33)),
+        ("id", "a/a/a/a/a/a/a/a/a".to_owned()),
+        ("id", "a".repeat(129)),
+        ("title", "a".repeat(257)),
+        ("msg", "a".repeat(2733)),
+        ("abcdefghijklmnopq", "future".to_owned()),
+    ] {
+        let body = format!("?:{key}={value}:states=working:kinds=auth");
+        let Some(Event::Capabilities(capabilities)) = parse_body(body.as_bytes())? else {
+            return Err("expected capabilities".into());
+        };
+        assert_eq!(capabilities.states().collect::<Vec<_>>(), ["working"]);
+        assert_eq!(capabilities.kinds().collect::<Vec<_>>(), ["auth"]);
+
+        let frame = format!("\x1b]7501;{body}\x1b\\");
+        assert_eq!(
+            parse_sequence(frame.as_bytes())?,
+            Some(Event::Capabilities(capabilities))
+        );
+        let mut decoder = Decoder::new();
+        let mut seen = 0;
+        let mut result = Ok(());
+        for chunk in frame.as_bytes().chunks(7) {
+            decoder.feed(chunk, |event| match event {
+                Ok(event) => {
+                    assert_eq!(event, Event::Capabilities(capabilities));
+                    seen += 1;
+                }
+                Err(error) => result = Err(error),
+            });
+        }
+        result?;
+        assert_eq!(seen, 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn capability_replies_keep_the_sequence_limit() -> TestResult {
+    for terminator in ["\x07", "\x1b\\"] {
+        let prefix = "\x1b]7501;?:states=working:future=";
+        let frame = format!(
+            "{prefix}{}{terminator}",
+            "a".repeat(4096 - prefix.len() - terminator.len())
+        );
+        assert!(matches!(
+            parse_sequence(frame.as_bytes())?,
+            Some(Event::Capabilities(_))
+        ));
+        let too_long = format!(
+            "{prefix}a{}{terminator}",
+            "a".repeat(4096 - prefix.len() - terminator.len())
+        );
+        assert_eq!(
+            parse_sequence(too_long.as_bytes()),
+            Err(Error::Limit(Limit::Sequence))
+        );
+    }
+    let mut body = b"?:states=working:future=".to_vec();
+    body.resize(4087, b'a');
+    assert!(matches!(parse_body(&body)?, Some(Event::Capabilities(_))));
+    body.push(b'a');
+    assert_eq!(parse_body(&body), Err(Error::Limit(Limit::Sequence)));
+    Ok(())
+}
+
+#[test]
 fn empty_capabilities_are_distinct_from_absent_lists() -> TestResult {
     let Some(Event::Capabilities(value)) = parse_body(b"?:states=:kinds=")? else {
         return Err("expected capabilities".into());
