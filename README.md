@@ -40,6 +40,30 @@ Send `idle` after cancellation and `done` or `error` when work ends.
 
 ## Run the protocol demo
 
+For a colorful interactive TUI, run:
+
+```sh
+cargo run -p osc7501-rs --example tui
+```
+
+The [TUI](crates/osc7501/examples/tui.rs) simulates three concurrent release
+tasks. Press `s` to start, select a task with the arrow keys or `Tab`, then use
+`f` to fail it and `r` to retry. Press `p`, `a`, or `?` to request permission,
+authentication, or an answer. `Enter` resumes work. `c` cancels and clears the
+child records. `q` or `Ctrl+C` quits.
+
+The screen shows colored task progress, recent reports, and the builder calls
+for the root or selected child. `b` switches the API preview. It sends real
+OSC 7501 reports through the same writer as Ratatui. The TUI works without
+terminal protocol support; a terminal with OSC 7501 support can also display
+those reports. All work and prompts are simulated. Use a terminal of at least
+80 columns and 24 rows. The report log appears when the terminal has at least
+29 rows.
+
+If your environment sets `NO_COLOR`, unset it to show colors.
+
+For a paced text demonstration, run:
+
 ```sh
 cargo run -p osc7501-rs --example demo
 ```
