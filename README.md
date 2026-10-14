@@ -6,7 +6,7 @@ has failed. The terminal decides how to display that status.
 
 | Cargo package | Rust library | What it does |
 | --- | --- | --- |
-| `osc7501-rs` | `osc7501` | Send status reports from a terminal application |
+| `osc7501-rs` | `osc7501` | Send status reports and terminal capability replies |
 | `osc7501-parser` | `osc7501_parser` | Parse status reports and terminal capability replies |
 
 The parser can be used on its own and works without `std`. Both crates process
@@ -116,6 +116,18 @@ The parser checks their contents before it returns the report.
 The parser rejects the whole report if text is invalid or a protocol limit is
 exceeded. Otherwise, it ignores reports with an unknown or missing state, or an
 invalid record id. Invalid app ids and progress values are treated as absent.
+
+## Answer support queries
+
+Terminal hosts can use `CapabilityReply::new().states(&states).kinds(&kinds)`
+and `write_to` with their program-input writer. Advertise only features the
+host implements. Omitted lists use the fixed revision 0.4 defaults; empty
+lists advertise no support. The default reply has the same bytes as a query,
+so stream direction and pending-query state determine its meaning.
+
+Replies are encoded within the 4096-byte frame cap before caller output. They
+use no heap allocation and leave flushing to the caller, as status reports do.
+See the [producer API overview](crates/osc7501/README.md) for an example.
 
 ## Develop
 

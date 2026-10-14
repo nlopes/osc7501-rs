@@ -1,6 +1,6 @@
 [package]
 name = "osc7501-rs"
-description = "Typed program-status reports for Rust terminal applications"
+description = "Typed OSC 7501 reports and terminal capability replies"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

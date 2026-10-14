@@ -1,6 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+mod capabilities;
 mod constants;
+
+pub use capabilities::CapabilityReply;
 
 use std::io::{self, Write};
 
@@ -203,7 +206,7 @@ pub enum Error {
     /// Kind or progress is incompatible with this state.
     #[error("status field is incompatible with its state")]
     IncompatibleField,
-    /// A value constructor, parser, or text decoder failed.
+    /// A value constructor, parser, text decoder, or frame limit failed.
     #[error("{0}")]
     Parser(#[from] parser::Error),
     /// The caller's output writer failed.

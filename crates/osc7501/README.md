@@ -1,8 +1,8 @@
 # osc7501-rs
 
 Send **OSC 7501 Program Status Protocol, revision 0.4** reports through your
-terminal application's existing output writer. The terminal decides how to
-display them.
+terminal application's existing output writer. Terminal hosts can also send
+capability replies. The terminal decides how to display reports.
 
 The Cargo package is `osc7501-rs`. Its Rust library is `osc7501`.
 
@@ -47,8 +47,37 @@ and `done` or `error` when work ends.
 `osc7501::parser` exposes report and capability parsing. For parsing alone,
 use the separate `osc7501-parser` package, which works without `std`.
 
-Rust 1.88 or later is required. The maximum report this producer emits is
-3220 bytes; the protocol's complete-frame cap is 4096 bytes.
+## Reply from a terminal host
+
+```rust
+use osc7501::{CapabilityReply, State};
+use std::io::Write;
+
+fn answer_query(output: &mut dyn Write) -> Result<(), osc7501::Error> {
+    CapabilityReply::new()
+        .states(&[State::Idle, State::Working, State::Done, State::Error])
+        .kinds(&[])
+        .write_to(output)
+}
+```
+
+Advertise only features the host implements. Omitted lists use the fixed
+revision 0.4 defaults. An explicit empty list advertises no support for that
+category. Typed lists preserve order and duplicates and contain only known
+states or kinds; `clear` is an action and is never advertised.
+
+`CapabilityReply::new().write_to(output)` sends a bare default reply. Its bytes
+match `write_query`; both parse as `parser::Event::Query`. Use stream direction
+and pending-query state to decide whether to answer or consume that event.
+The caller selects the writer and decides when to reply.
+
+Replies use no heap allocation and do not flush. Replies above the 4096-byte
+complete-frame cap fail with `Error::Parser(parser::Error::Limit)` before any
+caller output. Writer failures preserve their I/O source and can leave a
+partial frame.
+
+Rust 1.88 or later is required. The maximum status report this producer emits
+is 3220 bytes; the protocol's complete-frame cap is 4096 bytes.
 
 - [API documentation](https://docs.rs/osc7501-rs)
 - [Protocol specification](https://www.superlogical.com/rex/docs/build/program-status)
