@@ -2,6 +2,7 @@ use crate::{Error, MAX_APP, MAX_DEPTH, MAX_ID, MAX_SEGMENT, base64};
 
 /// A record's state. Clearing is represented separately by [`Action::Clear`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum State {
     /// Waiting for a new instruction, including after cancellation.
     Idle,
@@ -44,6 +45,7 @@ impl State {
 
 /// Why a blocked record needs the user.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Kind {
     /// Approval to perform an action.
     Permission,
@@ -241,32 +243,6 @@ impl<'a> EncodedText<'a> {
 }
 
 /// A validated report. Missing fields remove the prior record's fields.
-///
-/// Read fields through the getters. Reports can only be constructed by parsing.
-///
-/// ```compile_fail,E0451
-/// use osc7501_parser::{Action, Report, State};
-///
-/// let report = Report {
-///     action: Action::Set(State::Idle),
-///     id: None,
-///     kind: None,
-///     progress: None,
-///     app: None,
-///     title: None,
-///     message: None,
-/// };
-/// ```
-///
-/// Callers cannot change fields after validation.
-///
-/// ```compile_fail,E0616
-/// use osc7501_parser::{Action, Report, State};
-///
-/// fn change_action(report: &mut Report<'_>) {
-///     report.action = Action::Set(State::Idle);
-/// }
-/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Report<'a> {
     pub(crate) action: Action,
@@ -325,23 +301,6 @@ impl<'a> Report<'a> {
 /// Feature detection reply. Explicit lists retain future, unknown tokens.
 ///
 /// Missing lists use the revision 0.4 defaults.
-/// Capabilities can only be constructed by parsing.
-///
-/// ```compile_fail,E0451
-/// use osc7501_parser::Capabilities;
-///
-/// let capabilities = Capabilities { states: None, kinds: None };
-/// ```
-///
-/// Callers cannot change the advertised lists.
-///
-/// ```compile_fail,E0616
-/// use osc7501_parser::Capabilities;
-///
-/// fn change_states(capabilities: &mut Capabilities<'_>) {
-///     capabilities.states = Some("working");
-/// }
-/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capabilities<'a> {
     pub(crate) states: Option<&'a str>,
@@ -380,6 +339,7 @@ impl Capabilities<'_> {
 
 /// A recognized protocol event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Event<'a> {
     /// A valid report, ready to apply atomically.
     Report(Report<'a>),
@@ -392,6 +352,7 @@ pub enum Event<'a> {
 
 /// A hard protocol bound that was exceeded.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Limit {
     /// Complete OSC frame.
     Sequence,

@@ -197,6 +197,7 @@ pub fn write_query<W: Write + ?Sized>(output: &mut W) -> io::Result<()> {
 
 /// Validation, parsing, or transport failure.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// A title or message exceeds the decoded byte cap.
     #[error("status text exceeds its byte cap")]

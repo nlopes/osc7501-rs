@@ -38,6 +38,11 @@ implementations do not allocate. The derive macro adds host build dependencies.
 The producer's `Error::Parser` wraps parser errors, so `?` can propagate value
 construction, parsing, and text decoding through `osc7501::Error`. Its `Error::Io`
 wraps writer failures. Both variants preserve the original error as their source.
+Both crates' error enums allow new variants without a breaking API change.
+
+`State`, `Kind`, `Event`, and `Limit` are non-exhaustive so protocol support can
+grow without breaking caller matches. `Action` stays exhaustive: `Set(State)`
+covers state updates and `Clear` covers removal.
 
 `Report<'a>` borrows identifiers and base64 input. `EncodedText` is validated
 eagerly, then decoded into caller storage only when displayed. This avoids
