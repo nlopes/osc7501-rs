@@ -84,7 +84,7 @@ frame buffer size is not a measurement of peak stack depth or whole-process RSS.
 
 ## Record store memory
 
-Measured 2026-10-14 on macOS, aarch64, Rust 1.99.0:
+Measured 2026-10-15 on macOS, aarch64, Rust 1.99.0:
 
 | Component | Bytes |
 | --- | ---: |
@@ -106,12 +106,17 @@ throughout these operations, including store construction.
 
 ### Stack check
 
-The workload runs on a thread configured with a 64 KiB stack. Caller slots live
-outside that stack. This exercises compiler temporaries and nested parsing,
-replacement, and removal calls. It proves completion within the configured
-stack on the tested platform; it does not measure exact peak stack depth.
-Slots, store metadata, decoder storage, and the entire configured thread stack
-total 704552 bytes, a conservative check below the 1,000,000-byte library budget.
+The workload runs on a thread configured with a 64 KiB stack, or 128 KiB on
+Windows. Caller slots and input fixtures are allocated before spawning that
+thread. This exercises compiler temporaries and nested parsing, replacement,
+and removal calls. The Windows allowance includes room for temporary values in
+debug builds and
+[Windows stack overflow handling](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadstackguarantee).
+Success confirms that the workload fits on the tested platform. It does not
+measure exact peak stack depth.
+With the measured layouts, slots, store metadata, decoder storage, and the
+entire configured thread stack total 704552 bytes with 64 KiB, or 770088 bytes
+with 128 KiB. Both are below the 1,000,000-byte library budget.
 Caller-retained inputs, test setup allocations, allocator overhead, and
 whole-process RSS are separate.
 

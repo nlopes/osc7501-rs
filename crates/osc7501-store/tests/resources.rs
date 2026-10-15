@@ -11,7 +11,8 @@ use std::mem::size_of;
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-const STACK_SIZE: usize = 64 * 1024;
+// Windows needs extra room for overflow handling and unoptimized value copies.
+const STACK_SIZE: usize = if cfg!(windows) { 128 * 1024 } else { 64 * 1024 };
 const STATES: [State; 5] = [
     State::Idle,
     State::Working,
@@ -208,18 +209,18 @@ fn exercise(slots: &mut [Slot], workload: &Workload) -> Result<(), Error> {
 }
 
 #[test]
-fn maximum_workload_is_allocation_free_on_a_64_kib_thread_stack() -> TestResult {
+fn maximum_workload_is_allocation_free_on_a_bounded_thread_stack() -> TestResult {
+    let mut slots: Vec<_> = (0..MAX_RECORDS).map(|_| Slot::EMPTY).collect();
+    let workload = Workload::new();
     std::thread::Builder::new()
         .name("store-resource-check".into())
         .stack_size(STACK_SIZE)
-        .spawn(maximum_workload)?
+        .spawn(move || maximum_workload(&mut slots, &workload))?
         .join()
         .map_err(|_| "maximum workload thread failed")?
 }
 
-fn maximum_workload() -> TestResult {
-    let mut slots: Vec<_> = (0..MAX_RECORDS).map(|_| Slot::EMPTY).collect();
-    let workload = Workload::new();
+fn maximum_workload(slots: &mut [Slot], workload: &Workload) -> TestResult {
     let resident = size_of::<[Slot; MAX_RECORDS]>() + size_of::<Store<'_>>() + size_of::<Decoder>();
     let with_scratch = resident + size_of::<Slot>() + MAX_MESSAGE;
     assert!(with_scratch < 1_000_000);
@@ -235,7 +236,7 @@ fn maximum_workload() -> TestResult {
         resident + STACK_SIZE
     );
     let mut result = Ok(());
-    let info = allocation_counter::measure(|| result = exercise(&mut slots, &workload));
+    let info = allocation_counter::measure(|| result = exercise(slots, workload));
     result?;
     assert_eq!(info.count_total, 0);
     assert_eq!(info.bytes_max, 0);

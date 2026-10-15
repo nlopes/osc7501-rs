@@ -166,8 +166,8 @@ formatting, origin attribution, and notification rate limits.
 
 On macOS aarch64, 256 slots occupy 634880 bytes. Store metadata, decoder storage,
 one conservative replacement buffer, and parser validation scratch total
-643544 bytes. The maximum-field workload also completes on a thread configured
-with a 64 KiB stack. These checks cover library storage and an observed stack
+643544 bytes. The maximum-field resource test uses a 64 KiB thread stack, or
+128 KiB on Windows. These checks cover library storage and an observed stack
 limit, not whole-process RSS or exact peak stack depth. See `performance.md`
 for the components and reproduction command.
 

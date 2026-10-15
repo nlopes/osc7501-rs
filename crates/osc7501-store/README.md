@@ -135,8 +135,8 @@ Rust 1.88 or later is required.
 
 On macOS aarch64, one slot occupies 2480 bytes and 256 slots occupy 634880 bytes.
 Store metadata, decoder storage, and conservative preparation and validation
-buffers total 643544 bytes. The maximum-field workload completes on a thread
-configured with a 64 KiB stack, with caller slots stored outside that stack.
+buffers total 643544 bytes. The maximum-field resource test uses a 64 KiB thread
+stack, or 128 KiB on Windows. Caller slots are stored outside that stack.
 These are library resource checks, not whole-process RSS or exact stack peaks.
 Large slot arrays need storage chosen by the caller; construction does not
 create a hidden capacity-sized array.
