@@ -76,6 +76,55 @@ complete-frame cap fail with `Error::Parser(parser::Error::Limit)` before any
 caller output. Writer failures preserve their I/O source and can leave a
 partial frame.
 
+## Keep terminal records
+
+Enable the optional `store` feature to also use `osc7501::store`:
+
+```toml
+[dependencies]
+osc7501 = { package = "osc7501-rs", version = "0.1", features = ["store"] }
+```
+
+```rust
+# #[cfg(feature = "store")]
+fn main() -> Result<(), osc7501::store::Error> {
+    use osc7501::{
+        parser::{Event, parse_sequence},
+        store::{MIN_HOST_CAPACITY, Slot, Store},
+    };
+
+    let mut slots = [const { Slot::EMPTY }; MIN_HOST_CAPACITY];
+    let mut store = Store::new(&mut slots)?;
+    let input = b"\x1b]7501;state=done:app=cargo:msg=T0s=\x1b\\";
+    if let Some(Event::Report(report)) = parse_sequence(input)? {
+        store.apply(report, |_| {})?;
+    }
+    assert_eq!(store.get(None).and_then(|record| record.message()), Some("OK"));
+    Ok(())
+}
+# #[cfg(not(feature = "store"))]
+# fn main() {}
+```
+
+The feature is off by default. Sending and parsing reports does not require it.
+The store's `parser` re-export exposes the same parser types. Applications that
+only receive and retain reports can depend on `osc7501-store` directly; that
+crate works without `std` and does not depend on this producer.
+
+Run the [host example](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs)
+from the repository root:
+
+```sh
+cargo run -p osc7501-rs --example host --features store
+```
+
+It extends the TUI release playground with retained host records, decoded
+fields, app inheritance, and process-exit cleanup. Press `s` to start, `f` to
+fail a selected task, and `r` to retry. `X` drops the simulated producer while
+completed and failed results remain visible. Use `i` to inspect the store API.
+The [store overview](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501-store/README.md#run-a-terminal-host-example)
+lists all controls. Piped output stays plain; `-- --plain` requests a text trace.
+
 Rust 1.88 or later is required. The maximum status report this producer emits
 is 3220 bytes; the protocol's complete-frame cap is 4096 bytes.
 

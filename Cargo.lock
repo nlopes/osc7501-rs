@@ -407,7 +407,18 @@ version = "0.1.0"
 dependencies = [
  "allocation-counter",
  "osc7501-parser",
+ "osc7501-store",
  "ratatui",
+ "thiserror",
+]
+
+[[package]]
+name = "osc7501-store"
+version = "0.1.0"
+dependencies = [
+ "allocation-counter",
+ "base64",
+ "osc7501-parser",
  "thiserror",
 ]
 

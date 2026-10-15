@@ -12,8 +12,15 @@ readme = "README.md"
 [lib]
 name = "osc7501"
 
+[features]
+store = ["dep:osc7501-store"]
+
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 osc7501-parser = { path = "../osc7501-parser", version = "0.1.0" }
+osc7501-store = { path = "../osc7501-store", version = "0.1.0", optional = true }
 thiserror.workspace = true
 
 [lints]
@@ -22,3 +29,8 @@ workspace = true
 [dev-dependencies]
 allocation-counter = "0.8.1"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache"] }
+
+[[example]]
+name = "host"
+required-features = ["store"]
+test = true

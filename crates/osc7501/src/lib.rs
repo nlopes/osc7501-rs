@@ -13,6 +13,10 @@ use constants::ALPHABET;
 pub use osc7501_parser as parser;
 pub use parser::{AppId, Kind, Progress, RecordId, State};
 
+/// Current terminal records, available with the `store` feature.
+#[cfg(feature = "store")]
+pub use osc7501_store as store;
+
 use parser::{Action, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE};
 
 /// Plain-text report to encode. `None` means absent, not "keep prior value".

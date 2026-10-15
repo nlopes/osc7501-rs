@@ -7,14 +7,24 @@ All workspace members live in `crates/`:
 | Crate | Responsibility | Runtime dependencies |
 | --- | --- | --- |
 | `osc7501-parser` | Wire parsing, validation, types, capabilities, bounded streaming | `thiserror` without default features; `no_std` |
-| `osc7501` | Borrowed producer builder, bounded encoding, output-writer integration | Local parser and `thiserror` without default features |
+| `osc7501` | Report emission, capability replies, optional store access | Local parser and `thiserror` without default features; optional local store |
+| `osc7501-store` | Current records, app inheritance, eviction, explicit lifetime cleanup | Local parser and `thiserror` without default features; `no_std` |
 
 The producer's Cargo package is `osc7501-rs`; its Rust library is `osc7501`.
 
 `osc7501::parser` exposes the complete parser crate. `AppId`, `RecordId`,
 `Progress`, `State`, and `Kind` are also available at the emission crate's root
-for building reports. Parser-only types, functions, and limits use the `parser`
-namespace. Code that only parses reports can depend on `osc7501-parser` directly.
+for building reports. `CapabilityReply` builds terminal capability replies.
+Parser-only types, functions, and limits use the `parser` namespace. Code that
+only parses reports can depend on `osc7501-parser` directly.
+
+The optional `store` feature exposes `osc7501::store`. It is off by default.
+The standalone store depends only on the parser and `thiserror`; its `parser`
+re-export supplies the types used by its public API. Both standalone crates
+remain `no_std`. The combined host example belongs to the producer package,
+requires `store`, and uses the producer's re-exports throughout. This keeps
+normal and development dependencies acyclic. CI checks default and all
+features; docs.rs builds all features.
 
 The parser separates **ignore** (`Ok(None)`) from **reject** (`Err`) and accepted
 events (`Ok(Some(...))`). It never exposes partially validated record updates.
@@ -37,13 +47,13 @@ checked before output begins.
 
 Value construction, parsing, streaming, and text decoding share `Error`.
 `BufferTooSmall` means the caller supplied too little decode storage; `Limit`
-means input exceeded a protocol cap. Both crates inherit `thiserror` from the
+means input exceeded a protocol cap. All crates inherit `thiserror` from the
 workspace manifest with its `std` feature disabled. The generated error
 implementations do not allocate. The derive macro adds host build dependencies.
 The producer's `Error::Parser` wraps parser errors, so `?` can propagate value
 construction, parsing, and text decoding through `osc7501::Error`. Its `Error::Io`
 wraps writer failures. Both variants preserve the original error as their source.
-Both crates' error enums allow new variants without a breaking API change.
+All crates' error enums allow new variants without a breaking API change.
 
 `State`, `Kind`, `Event`, and `Limit` are non-exhaustive so protocol support can
 grow without breaking caller matches. `Action` stays exhaustive: `Set(State)`
@@ -85,6 +95,20 @@ For concurrent tasks, use validated hierarchical ids such as `build/test` and
 percentage. Choose one owner for root updates so workers cannot overwrite each
 other. `Status::clear().id(id)` removes a finished subtree when appropriate.
 
+## Terminal capability replies
+
+`CapabilityReply` borrows typed state and kind slices. `new()` and `Default`
+omit both lists and emit the bare default reply. Builder methods make a list
+explicit, including an empty list. Parsed `Capabilities` stays read-only.
+The host chooses when to reply and must advertise only implemented features.
+
+Reply emission preserves list order and duplicates, encodes the full frame
+before caller output, and accepts `&mut dyn Write`. Buffer exhaustion returns
+`Error::Parser(Error::Limit(Limit::Sequence))`; caller writer failures return
+`Error::Io`. It does not allocate or flush. A transport error can leave a
+partial frame. The bare reply is interpreted as `Event::Query` on input; the
+caller supplies stream direction and pending-query state.
+
 ## Memory contract
 
 - Core parsing uses no allocator or `alloc` crate and has no retained state.
@@ -92,7 +116,8 @@ other. `Status::clear().id(id)` removes a finished subtree when appropriate.
 - The scanner owns a single 4096-byte inline frame buffer plus small metadata.
 - Consumers provide text destinations; 2048 bytes handles the largest message.
 - The producer owns a 4096-byte local encoding buffer during emission.
-- No recursion, per-pair collections, dynamic strings, caches, or task registries.
+- Parsing and emission use no recursion, per-pair collections, dynamic strings,
+  caches, or task registries. The separate store retains bounded records.
 
 The largest report this producer emits is 3220 bytes, with each supported field
 present once at its limit. The specification sets a 4096-byte complete-frame
@@ -107,24 +132,44 @@ have their own memory. Allocation-counter tests exercise maximal text, complete
 frames, chunked input, and producer output with **zero heap allocations**.
 Measured sizes and throughput are recorded in `performance.md`.
 
-## Terminal-side record store: next independent crate
+## Terminal-side record store
 
-A future `osc7501-store` belongs in `crates/`, behind a separate opt-in dependency.
-It should use caller-selected capacity (64–256), fixed slots or caller storage,
-bounded owned text, atomic full replacement, nearest-ancestor app lookup,
-slash-aware subtree clearing, and a monotonically ordered update counter for
-eviction. An update must validate completely before choosing or mutating a slot.
+`osc7501-store` depends on the parser. The producer exposes it through an
+optional dependency; the parser has no store dependency. `Store::new` borrows
+caller-owned `Slot` storage and starts empty. Capacities from 1 through 256
+are accepted; a conforming terminal host needs at least 64, including root.
 
-At 256 records, raw maximum field storage is
-`256 * (2048 + 192 + 128 + 32) = 614400` bytes. Fixed metadata, scanner, and
-validation scratch can fit comfortably within a 1,000,000-byte library budget.
-Enforce that budget with layout assertions and measured maximal-load tests
-before claiming a store-level guarantee. This store is designed, not implemented.
+`apply(report, on_remove)` copies identifiers and decodes text into one prepared
+record before choosing or mutating a slot. Omitted fields disappear. `Record`
+views expose validated identifiers and decoded text through read-only methods.
+`get` and `iter` borrow the store. `effective_app` resolves the nearest ancestor
+with an app at lookup time, so parent updates and removals affect inheritance
+without changing descendants' explicit fields. Parents may be absent.
 
-Expose explicit `on_prompt`, `on_process_exit`, `on_ris`, and `on_decstr`
-transitions. Terminal screen switches do not trigger cleanup. Display consumers
-handle invisible formatting, origin attribution, and notification rate limits.
-Keep report parsing independent of terminal UX and unrelated OSC mapping.
+Clear removes the addressed record and slash-delimited descendants; root clear
+removes every record. At capacity, insertion evicts the least recently updated
+record. Existing-record updates never evict another record. Active update ranks
+stay dense within the slot count. Moving an updated record to the newest rank
+and closing gaps on removal avoids a wrapping global counter. Operations scan
+bounded slots; batch removal can scan them once per removed record.
+
+`apply` calls `on_remove` with the old record before clearing or evicting it.
+Ordinary replacement does not call it. The callback can observe root or child
+identity and old fields without an owned change list. Lifecycle cleanup uses
+the same callback contract. Notification and history policy stay with the host.
+
+`on_prompt` and `on_process_exit` remove working and blocked records. They retain
+idle, done, and error. `on_full_reset` removes every record. Soft resets and
+screen switches require no store action. Events apply to the represented
+terminal, not guessed child process ids. Display consumers handle invisible
+formatting, origin attribution, and notification rate limits.
+
+On macOS aarch64, 256 slots occupy 634880 bytes. Store metadata, decoder storage,
+one conservative replacement buffer, and parser validation scratch total
+643544 bytes. The maximum-field workload also completes on a thread configured
+with a 64 KiB stack. These checks cover library storage and an observed stack
+limit, not whole-process RSS or exact peak stack depth. See `performance.md`
+for the components and reproduction command.
 
 ## Performance policy
 
