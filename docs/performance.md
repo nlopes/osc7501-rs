@@ -68,7 +68,7 @@ heap bytes. Oversized replies also allocated nothing and wrote no caller output.
 
 ## Record store memory
 
-Recorded on 2026-10-15 with Rust 1.99.0 on macOS aarch64:
+Recorded on 2026-10-16 with Rust 1.99.0 on macOS aarch64, using default features:
 
 | Component | Bytes |
 | --- | ---: |
@@ -83,8 +83,13 @@ Recorded on 2026-10-15 with Rust 1.99.0 on macOS aarch64:
 The workload keeps root plus 255 children. Each record has a 2048-byte Unicode
 message, a 192-byte Unicode title, and a 32-byte app; child ids use all 128 bytes.
 It exercises parsing, replacement, eviction, lookup, inheritance, clearing, and
-terminal cleanup. Store construction and operations used zero allocations and
-zero peak heap bytes.
+terminal cleanup. Borrowed construction with `Store::from_slots` and all store
+operations used zero allocations and zero peak heap bytes.
+
+With `alloc` enabled, store metadata is 32 bytes and total storage with named
+scratch is 643552 bytes. `Store::new(256)` made one 634880-byte allocation.
+The same workload made no further allocations, and dropping the store freed
+the storage. Invalid capacities were rejected without allocating.
 
 ### Stack check
 
@@ -92,10 +97,11 @@ The resource test uses a 64 KiB thread stack, or 128 KiB on Windows. Caller slot
 and fixtures are allocated before the thread starts. Windows gets extra room
 for debug-build copies and stack-overflow handling.
 
-The macOS workload completed in debug and release with the 64 KiB stack.
+Both borrowed and owned stores completed the macOS workload in debug and release
+with the 64 KiB stack. Owned construction also ran on that stack.
 Using the recorded layouts, slots, metadata, decoder, and the entire configured
 stack total 704552 bytes with 64 KiB, or 770088 bytes with 128 KiB. Both fit the
-1,000,000-byte library budget.
+1,000,000-byte library budget. Enabling `alloc` adds eight bytes to these totals.
 
 These figures cover library storage. They do not measure exact stack peaks or
 whole-process RSS, which also includes the runtime, allocator, UI, and caller data.
@@ -109,6 +115,8 @@ and the bounded-stack workload:
 ```sh
 cargo nextest run -p osc7501-store --test resources --locked --success-output immediate
 cargo nextest run --release -p osc7501-store --test resources --locked --success-output immediate
+cargo nextest run -p osc7501-store --test resources --features alloc --locked --success-output immediate
+cargo nextest run --release -p osc7501-store --test resources --features alloc --locked --success-output immediate
 ```
 
 For the full regression suite and documentation examples, follow the

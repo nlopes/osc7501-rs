@@ -8,10 +8,10 @@ mod ui;
 
 #[cfg(test)]
 use osc7501::Status;
-use osc7501::store::{MIN_HOST_CAPACITY, Slot, Store};
+use osc7501::store::{MIN_HOST_CAPACITY, Store};
 use osc7501::{
     AppId, CapabilityReply, Kind, RecordId, State,
-    parser::{Decoder, Event},
+    parser::{Decoder, Event, stream::Error as StreamError},
 };
 use ratatui::{
     Terminal,
@@ -41,17 +41,17 @@ enum Error {
     Store(#[from] osc7501::store::Error),
 }
 
-struct Host<'a> {
+struct Host {
     decoder: Decoder,
-    records: Store<'a>,
+    records: Store<'static>,
     reports_received: usize,
 }
 
-impl<'a> Host<'a> {
-    fn new(slots: &'a mut [Slot]) -> Result<Self, Error> {
+impl Host {
+    fn new(capacity: usize) -> Result<Self, Error> {
         Ok(Self {
             decoder: Decoder::new(),
-            records: Store::new(slots)?,
+            records: Store::new(capacity)?,
             reports_received: 0,
         })
     }
@@ -64,13 +64,8 @@ impl<'a> Host<'a> {
     ) -> Result<(), Error> {
         // Seven-byte chunks simulate fragmented reads from one terminal's PTY.
         for chunk in bytes.chunks(7) {
-            let mut result = Ok(());
-            self.decoder.feed(chunk, |event| {
-                // The callback cannot return an error; propagate it after feed.
-                if result.is_err() {
-                    return;
-                }
-                result = match event {
+            self.decoder
+                .try_feed(chunk, |event| match event {
                     Ok(Event::Report(report)) => self
                         .records
                         .apply(report, |_| {})
@@ -93,9 +88,8 @@ impl<'a> Host<'a> {
                     Err(error) => {
                         writeln!(trace, "  Rejected report: {error}").map_err(Error::from)
                     }
-                };
-            });
-            result?;
+                })
+                .map_err(StreamError::into_inner)?;
         }
         Ok(())
     }
@@ -151,8 +145,7 @@ impl<'a> Host<'a> {
 }
 
 fn run(trace: &mut dyn Write) -> Result<(), Error> {
-    let mut slots: Vec<_> = (0..MIN_HOST_CAPACITY).map(|_| Slot::EMPTY).collect();
-    let mut app = App::new(&mut slots)?;
+    let mut app = App::new(MIN_HOST_CAPACITY)?;
     writeln!(trace, "OSC 7501 / release playground / terminal host")?;
     writeln!(
         trace,
@@ -216,8 +209,7 @@ fn restore_terminal() {
 }
 
 fn interactive() -> Result<(), Error> {
-    let mut slots: Vec<_> = (0..MIN_HOST_CAPACITY).map(|_| Slot::EMPTY).collect();
-    let mut app = App::new(&mut slots)?;
+    let mut app = App::new(MIN_HOST_CAPACITY)?;
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore_terminal();
@@ -245,7 +237,7 @@ fn interactive() -> Result<(), Error> {
     }
 }
 
-fn keypress(app: &mut App<'_>, key: KeyEvent) -> Result<bool, Error> {
+fn keypress(app: &mut App, key: KeyEvent) -> Result<bool, Error> {
     if key.code == KeyCode::Char('q')
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
     {
@@ -291,8 +283,7 @@ mod tests {
 
     #[test]
     fn query_replies_use_only_the_program_input_writer() -> Result<(), Error> {
-        let mut slots = [Slot::EMPTY];
-        let mut host = Host::new(&mut slots)?;
+        let mut host = Host::new(1)?;
         let mut replies = Vec::new();
         let mut trace = Vec::new();
         host.receive(b"ordinary text\x1b]7501;?\x1b\\", &mut replies, &mut trace)?;
@@ -307,8 +298,7 @@ mod tests {
 
     #[test]
     fn records_outlive_reads_and_invalid_updates_preserve_them() -> Result<(), Error> {
-        let mut slots = [const { Slot::EMPTY }; 3];
-        let mut host = Host::new(&mut slots)?;
+        let mut host = Host::new(3)?;
         let mut replies = Vec::new();
         let mut trace = Vec::new();
         let id = RecordId::new("build/docs")?;
@@ -357,8 +347,7 @@ mod tests {
 
     #[test]
     fn callback_writer_failures_reach_the_caller() -> Result<(), Error> {
-        let mut slots = [Slot::EMPTY];
-        let mut host = Host::new(&mut slots)?;
+        let mut host = Host::new(1)?;
         let mut no_space = &mut [][..];
         let mut trace = Vec::new();
         assert!(matches!(
@@ -386,8 +375,7 @@ mod tests {
 
     #[test]
     fn release_controls_apply_replacement_inheritance_and_subtree_clear() -> Result<(), Error> {
-        let mut slots: Vec<_> = (0..MIN_HOST_CAPACITY).map(|_| Slot::EMPTY).collect();
-        let mut app = App::new(&mut slots)?;
+        let mut app = App::new(MIN_HOST_CAPACITY)?;
         let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
         keypress(&mut app, key(KeyCode::Char('s')))?;
         app.tick()?;
@@ -448,8 +436,7 @@ mod tests {
     #[test]
     fn results_survive_after_the_producer_is_dropped() -> Result<(), Error> {
         for prompt in [false, true] {
-            let mut slots: Vec<_> = (0..MIN_HOST_CAPACITY).map(|_| Slot::EMPTY).collect();
-            let mut app = App::new(&mut slots)?;
+            let mut app = App::new(MIN_HOST_CAPACITY)?;
             app.command(KeyCode::Char('s'))?;
             for _ in 0..20 {
                 app.tick()?;
@@ -495,8 +482,7 @@ mod tests {
     #[test]
     fn release_and_host_actions_render_at_compact_and_wide_sizes() -> Result<(), Error> {
         use ratatui::backend::TestBackend;
-        let mut slots: Vec<_> = (0..MIN_HOST_CAPACITY).map(|_| Slot::EMPTY).collect();
-        let mut app = App::new(&mut slots)?;
+        let mut app = App::new(MIN_HOST_CAPACITY)?;
         for action in [
             None,
             Some('s'),

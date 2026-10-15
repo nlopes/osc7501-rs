@@ -72,7 +72,8 @@ them apart.
 
 `osc7501::parser` exposes the [parser](https://docs.rs/osc7501-parser).
 Add `features = ["store"]` to the dependency above to also use
-`osc7501::store`. The [store guide](https://docs.rs/osc7501-store) shows how to
+`osc7501::store`. Use `features = ["store-alloc"]` to also enable owned storage
+with `Store::new(capacity)`. The [store guide](https://docs.rs/osc7501-store) shows how to
 keep records and handle terminal cleanup.
 
 The parser and store also work as separate dependencies without `std`.

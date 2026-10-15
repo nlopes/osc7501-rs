@@ -33,6 +33,7 @@ fn main() -> Result<(), osc7501_parser::Error> {
 | A complete OSC sequence ending in BEL or ESC-backslash | `parse_sequence` |
 | A body from your terminal's escape-sequence handler | `parse_body` |
 | A stream split across reads | `Decoder::feed` |
+| A stream whose event consumer can fail or pause | `Decoder::try_feed` |
 
 Reports borrow their input. Messages and titles stay base64 encoded until you
 decode them, but the parser checks UTF-8 and rejects control characters first.
@@ -49,6 +50,27 @@ The two parsing functions return:
 Invalid app ids and progress values are treated as absent. Complete frames
 are limited to 4096 bytes; decoded messages to 2048 bytes and titles to 192.
 `Decoder::feed` calls you for accepted events and errors, and skips ignored reports.
+
+`Decoder::try_feed` stops when its callback returns `Err`. The callback can use
+any error type or a simple stop value such as `()`. Its `stream::Error` provides
+`consumed()` for the number of bytes consumed, `get_ref()` to inspect the original
+value, and `into_inner()` to recover it by value. The wrapper implements
+`core::error::Error` with a source chain when the callback error implements
+`core::error::Error + 'static`.
+
+To propagate only the callback error, use `.map_err(stream::Error::into_inner)?`.
+This also works with callbacks returning `anyhow::Result` or boxed errors.
+Keep the wrapper when you need the consumed position to resume.
+
+Resume on the same decoder with `&input[failure.consumed()..]`. The delivered
+event stays consumed, so copy any data you need before returning an error.
+Callback effects are not rolled back. If feeding stops at an oversized frame,
+resuming drains the rest of that frame without reporting its error again.
+The `Decoder::try_feed` API documentation includes a stop/resume example.
+
+Splitting input across calls does not change the event or error sequence.
+An empty input changes nothing. These rules also apply when you stop and resume
+with `try_feed`.
 
 Capability replies skip unknown names and pairs. Missing lists use revision 0.4
 defaults; empty lists remain empty. A bare `Event::Query` can also be a default

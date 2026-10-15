@@ -23,7 +23,7 @@ fn capacity_limits_include_small_test_stores() -> TestResult {
     assert_eq!(MAX_RECORDS, 256);
     for capacity in [0, 1, 63, 64, 256, 257] {
         let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
-        let result = Store::new(&mut slots);
+        let result = Store::from_slots(&mut slots);
         if matches!(capacity, 0 | 257) {
             assert!(matches!(result, Err(Error::InvalidCapacity)));
         } else {
@@ -37,10 +37,27 @@ fn capacity_limits_include_small_test_stores() -> TestResult {
     Ok(())
 }
 
+#[cfg(feature = "alloc")]
+#[test]
+fn owned_capacity_limits_include_small_test_stores() -> TestResult {
+    for capacity in [0, 1, 63, 64, 256, 257, usize::MAX] {
+        let result = Store::new(capacity);
+        if (1..=MAX_RECORDS).contains(&capacity) {
+            let store = result?;
+            assert_eq!(store.capacity(), capacity);
+            assert!(store.is_empty());
+            assert_eq!(store.iter().count(), 0);
+        } else {
+            assert!(matches!(result, Err(Error::InvalidCapacity)));
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn replacement_removes_every_omitted_field() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 1];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     let id = Some(RecordId::new("build/test")?);
     apply(
         &mut store,
@@ -72,7 +89,7 @@ fn replacement_removes_every_omitted_field() -> TestResult {
 #[test]
 fn explicitly_empty_text_is_present_until_omitted() -> TestResult {
     let mut slots = [Slot::EMPTY];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     apply(&mut store, b"state=done:title=:msg=")?;
     let record = store.get(None).ok_or("missing root")?;
     assert_eq!(record.title(), Some(""));
@@ -87,7 +104,7 @@ fn explicitly_empty_text_is_present_until_omitted() -> TestResult {
 #[test]
 fn root_counts_toward_capacity_and_can_be_evicted() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 2];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     apply(&mut store, b"state=done:app=cargo")?;
     apply(&mut store, b"state=done:id=build")?;
     assert_eq!(store.len(), 2);
@@ -111,7 +128,7 @@ fn root_counts_toward_capacity_and_can_be_evicted() -> TestResult {
 fn capacity_boundaries_replace_existing_and_evict_only_for_new_ids() -> TestResult {
     for capacity in [1, MIN_HOST_CAPACITY, MAX_RECORDS] {
         let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
-        let mut store = Store::new(&mut slots)?;
+        let mut store = Store::from_slots(&mut slots)?;
         apply(&mut store, b"state=done")?;
         for index in 1..capacity {
             apply(
@@ -139,7 +156,7 @@ fn capacity_boundaries_replace_existing_and_evict_only_for_new_ids() -> TestResu
 #[test]
 fn app_inheritance_tracks_changes_and_missing_ancestors() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 4];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     let child = Some(RecordId::new("a/b/c")?);
     apply(&mut store, b"state=done:id=a/b/c")?;
     assert_eq!(store.effective_app(child), None);
@@ -175,7 +192,7 @@ fn app_inheritance_tracks_changes_and_missing_ancestors() -> TestResult {
 #[test]
 fn evicting_an_ancestor_changes_app_without_rewriting_children() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 3];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     let child = Some(RecordId::new("build/test")?);
     apply(&mut store, b"state=done:app=root")?;
     apply(&mut store, b"state=done:id=build:app=cargo")?;
@@ -196,7 +213,7 @@ fn evicting_an_ancestor_changes_app_without_rewriting_children() -> TestResult {
 #[test]
 fn clear_obeys_slash_boundaries_and_absent_parents() -> TestResult {
     let mut slots: Vec<_> = (0..8).map(|_| Slot::EMPTY).collect();
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     for body in [
         &b"state=done"[..],
         b"state=working:id=build",
@@ -240,7 +257,7 @@ fn clear_obeys_slash_boundaries_and_absent_parents() -> TestResult {
 #[test]
 fn retries_and_reused_ids_have_no_workflow_restriction() -> TestResult {
     let mut slots = [Slot::EMPTY];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     let id = Some(RecordId::new("build")?);
     apply(&mut store, b"state=error:id=build:msg=RmFpbGVk")?;
     apply(&mut store, b"state=working:id=build:progress=0")?;
@@ -259,7 +276,7 @@ fn retries_and_reused_ids_have_no_workflow_restriction() -> TestResult {
 #[test]
 fn reads_replacements_and_clears_preserve_eviction_order() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 3];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     apply(&mut store, b"state=done:app=root")?;
     apply(&mut store, b"state=done:id=a:msg=T0s=")?;
     apply(&mut store, b"state=error:id=b")?;
@@ -293,7 +310,7 @@ fn reads_replacements_and_clears_preserve_eviction_order() -> TestResult {
 #[test]
 fn repeated_updates_cannot_roll_over_eviction_order() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 3];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     for id in ["a", "b", "c"] {
         apply(&mut store, format!("state=done:id={id}").as_bytes())?;
     }
@@ -332,7 +349,7 @@ fn all_states(store: &mut Store<'_>) -> Result<(), Error> {
 fn prompt_and_exit_remove_only_working_and_blocked() -> TestResult {
     for process_exit in [false, true] {
         let mut slots = [const { Slot::EMPTY }; 6];
-        let mut store = Store::new(&mut slots)?;
+        let mut store = Store::from_slots(&mut slots)?;
         all_states(&mut store)?;
         let mut removed = Vec::new();
         let on_remove = |record: osc7501_store::Record<'_>| removed.push(record.state());
@@ -360,7 +377,7 @@ fn prompt_and_exit_remove_only_working_and_blocked() -> TestResult {
 #[test]
 fn full_reset_clears_all_states_and_calls_removal_callback() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 6];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     all_states(&mut store)?;
     assert_eq!(store.len(), 6);
     let states: Vec<_> = store.iter().map(Record::state).collect();
@@ -385,7 +402,7 @@ fn full_reset_clears_all_states_and_calls_removal_callback() -> TestResult {
 #[test]
 fn ignored_and_rejected_frames_do_not_mutate_or_age_full_store() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 2];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     apply(&mut store, b"state=done:id=first:msg=T0s=")?;
     apply(&mut store, b"state=error:id=second")?;
     let input = b"ordinary output\x1b]7501;state=working:id=bad!\x07\x1b]7501;state=future:id=first\x07\x1b]7501;id=first\x07\x1b]7501;state=clear:id=first:msg=A\x07\x1b]7501;state=working:id=first:msg=AA==\x07\x1b]7501;state=done:id=third:msg=/w==\x07\x1b]7501;?\x07";
@@ -432,11 +449,11 @@ fn ignored_and_rejected_frames_do_not_mutate_or_age_full_store() -> TestResult {
 fn reusing_caller_storage_starts_empty() -> TestResult {
     let mut slots = [const { Slot::EMPTY }; 2];
     {
-        let mut store = Store::new(&mut slots)?;
+        let mut store = Store::from_slots(&mut slots)?;
         apply(&mut store, b"state=done")?;
         apply(&mut store, b"state=done:id=build")?;
     }
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::from_slots(&mut slots)?;
     assert!(store.is_empty());
     apply(&mut store, b"state=error:id=test")?;
     assert_eq!(store.len(), 1);

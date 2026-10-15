@@ -4,26 +4,27 @@ Keep the current status of programs and tasks for a terminal panel or tab
 indicator. This crate implements record storage for
 [OSC 7501](https://www.superlogical.com/rex/docs/build/program-status), revision 0.4.
 
-Works without `std` or an allocator. You provide the storage.
+Works without `std`. Enable `alloc` to let the store own its storage, or provide
+storage yourself to work without an allocator. The default feature set is empty.
 
 ## Keep a report
 
 ```toml
 [dependencies]
-osc7501-store = "0.1"
+osc7501-store = { version = "0.1", features = ["alloc"] }
 ```
 
 The crate exposes its parser, so you do not need a separate parser dependency:
 
 ```rust
 use osc7501_store::{
-    MIN_HOST_CAPACITY, Slot, Store,
+    MIN_HOST_CAPACITY, Store,
     parser::{Event, parse_sequence},
 };
 
+# #[cfg(feature = "alloc")]
 fn main() -> Result<(), osc7501_store::Error> {
-    let mut slots = [const { Slot::EMPTY }; MIN_HOST_CAPACITY];
-    let mut store = Store::new(&mut slots)?;
+    let mut store = Store::new(MIN_HOST_CAPACITY)?;
     let input = b"\x1b]7501;state=done:app=cargo:msg=T0s=\x1b\\";
     if let Some(Event::Report(report)) = parse_sequence(input)? {
         store.apply(report, |_| {})?;
@@ -33,10 +34,36 @@ fn main() -> Result<(), osc7501_store::Error> {
     }
     Ok(())
 }
+# #[cfg(not(feature = "alloc"))]
+# fn main() {}
 ```
 
-If you already use the producer, enable its `store` feature and import
-`osc7501::store` instead.
+`Store::new(capacity)` allocates storage once. Store operations do not allocate
+or grow that storage. The store frees it when dropped.
+
+If you already use the producer, enable its `store-alloc` feature and import
+`osc7501::store` instead. Its `store` feature exposes caller-provided storage
+without enabling `alloc`.
+
+## Provide storage without an allocator
+
+Use the default features and supply slots with `Store::from_slots`:
+
+```rust
+use osc7501_store::{MIN_HOST_CAPACITY, Slot, Store};
+
+# fn main() -> Result<(), osc7501_store::Error> {
+let mut slots = [const { Slot::EMPTY }; MIN_HOST_CAPACITY];
+let mut store = Store::from_slots(&mut slots)?;
+# Ok(())
+# }
+```
+
+This constructor is also available with `alloc` enabled. It starts empty,
+even with reused slots. It replaces the former `Store::new(&mut slots)` call.
+Choose storage that fits your memory budget, especially on small stacks.
+See the [storage measurements](https://github.com/nlopes/osc7501-rs/blob/main/docs/performance.md#record-store-memory)
+for sizes and allocation checks.
 
 ## How records change
 
@@ -54,12 +81,9 @@ retain reports after the parser's input is gone. Record views borrow the store.
   lifecycle cleanup. Ordinary replacement does not call them.
   Use `|_| {}` if you do not need that information.
 
-`Store::new` starts empty, even with reused slots. It accepts 1 to 256 slots,
-including root. A conforming terminal host needs at least `MIN_HOST_CAPACITY`
-(64); smaller stores are useful for tests. Choose storage that fits your
-memory budget, especially on small stacks. See the
-[storage measurements](https://github.com/nlopes/osc7501-rs/blob/main/docs/performance.md#record-store-memory)
-for sizes and allocation checks.
+Both constructors accept capacities from 1 to 256 records, including root.
+A conforming terminal host needs at least `MIN_HOST_CAPACITY` (64); smaller
+stores are useful for tests.
 
 ## Handle terminal events
 
@@ -82,7 +106,7 @@ From a repository checkout, run the
 [host playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs):
 
 ```sh
-cargo run -p osc7501-rs --example host --features store
+cargo run -p osc7501-rs --example host --features store-alloc
 ```
 
 It simulates a release, sends reports through a fragmented stream, and shows

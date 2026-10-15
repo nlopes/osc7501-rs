@@ -55,10 +55,12 @@ you need.
 | [osc7501-store](crates/osc7501-store/README.md) | Keep current records for a terminal status display |
 
 The producer exposes the parser as `osc7501::parser`. Add `features = ["store"]`
-to the dependency above to also use `osc7501::store`.
+to the dependency above to also use `osc7501::store`. Use `features = ["store-alloc"]`
+to construct an owned store with `Store::new(capacity)`.
 
 The parser and store work without `std`. All three crates process reports
-without heap allocation; the store uses storage you provide.
+without heap allocation. The store can borrow storage you provide or allocate
+its own storage during construction with the optional `alloc` feature.
 
 ## Try the examples
 
@@ -79,7 +81,7 @@ protocol support, but a supporting terminal can also display those reports.
 Two more examples cover different uses:
 
 - [Terminal host](crates/osc7501-store/README.md#run-a-terminal-host-example):
-  run `cargo run -p osc7501-rs --example host --features store` to see reports
+  run `cargo run -p osc7501-rs --example host --features store-alloc` to see reports
   parsed and stored. The inspector shows what the host keeps after updates
   and process exit. Add `-- --plain` for a text trace.
 - [Text demo](crates/osc7501/examples/demo.rs):

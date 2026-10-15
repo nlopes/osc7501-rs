@@ -5,7 +5,8 @@ mod base64;
 mod constants;
 mod error;
 mod parse;
-mod stream;
+/// Streaming decoder and resumable callback errors.
+pub mod stream;
 mod types;
 
 pub use constants::{

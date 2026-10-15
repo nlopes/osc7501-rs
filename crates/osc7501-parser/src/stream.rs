@@ -1,6 +1,40 @@
-use crate::{Error, Event, Limit, MAX_SEQUENCE, parse_sequence};
+use core::convert::Infallible;
+
+use crate::{Error as ParserError, Event, Limit, MAX_SEQUENCE, parse_sequence};
 
 const PREFIX: &[u8] = b"\x1b]7501;";
+
+/// A callback failure from [`Decoder::try_feed`], with the position for resuming.
+///
+/// The callback can return any error or stop value. This wrapper implements
+/// [`core::error::Error`] when `E: core::error::Error + 'static`.
+#[derive(Debug, thiserror::Error)]
+#[error("event callback failed after {consumed} input bytes")]
+pub struct Error<E> {
+    consumed: usize,
+    source: E,
+}
+
+impl<E> Error<E> {
+    /// Bytes consumed from this call's input, including the byte that triggered
+    /// the callback. Resume with `&input[failure.consumed()..]` on the same decoder.
+    #[must_use]
+    pub const fn consumed(&self) -> usize {
+        self.consumed
+    }
+
+    /// Borrows the original callback error or stop value.
+    #[must_use]
+    pub const fn get_ref(&self) -> &E {
+        &self.source
+    }
+
+    /// Returns the original callback error or stop value.
+    #[must_use]
+    pub fn into_inner(self) -> E {
+        self.source
+    }
+}
 
 #[derive(Clone, Copy, Default)]
 enum Phase {
@@ -52,8 +86,65 @@ impl Decoder {
 
     /// Consumes bytes and invokes the callback for accepted events or rejected
     /// target frames. Ignored reports and unrelated output produce no callback.
-    pub fn feed(&mut self, input: &[u8], mut on_event: impl FnMut(Result<Event<'_>, Error>)) {
-        for &byte in input {
+    pub fn feed(&mut self, input: &[u8], mut on_event: impl FnMut(Result<Event<'_>, ParserError>)) {
+        if let Err(failure) = self.try_feed(input, |event| {
+            on_event(event);
+            Ok::<(), Infallible>(())
+        }) {
+            match failure.source {}
+        }
+    }
+
+    /// Consumes bytes until the input ends or the callback returns an error.
+    /// Ignored reports and unrelated output produce no callback.
+    ///
+    /// On success, all input was consumed. On callback failure, the delivered
+    /// event stays consumed and the remaining input is untouched. Resume with
+    /// `&input[failure.consumed()..]` on this decoder. Callback effects are not
+    /// rolled back. The callback must copy any event data it needs to retain.
+    ///
+    /// An oversized frame produces one parser error when it exceeds the cap.
+    /// If the callback stops before the terminator, resuming drains the rest
+    /// of that frame without delivering the error again.
+    ///
+    /// # Errors
+    /// Returns the callback's error and the consumed byte count in [`Error`].
+    /// Parser errors are passed to the callback; they do not stop feeding unless
+    /// the callback returns an error.
+    ///
+    /// # Examples
+    /// Record one event before pausing, then resume with the remaining input.
+    /// The recorded text owns its data because events borrow the decoder.
+    ///
+    /// ```
+    /// use osc7501_parser::{Decoder, Error, Event};
+    ///
+    /// let mut decoder = Decoder::new();
+    /// let input = b"\x1b]7501;?\x07\x1b]7501;state=done\x07";
+    /// let mut events = Vec::new();
+    /// let mut record = |event: Result<Event<'_>, Error>| {
+    ///     events.push(event.map(|event| format!("{event:?}")));
+    /// };
+    ///
+    /// let result = decoder.try_feed(input, |event| {
+    ///     record(event);
+    ///     Err(())
+    /// });
+    /// if let Err(stopped) = result {
+    ///     decoder.feed(&input[stopped.consumed()..], record);
+    /// }
+    /// assert_eq!(events.len(), 2);
+    /// ```
+    pub fn try_feed<E>(
+        &mut self,
+        input: &[u8],
+        mut on_event: impl FnMut(Result<Event<'_>, ParserError>) -> Result<(), E>,
+    ) -> Result<(), Error<E>> {
+        for (index, &byte) in input.iter().enumerate() {
+            let failure = |source| Error {
+                consumed: index + 1,
+                source,
+            };
             match self.phase {
                 Phase::Ground => {
                     if byte == 0x1b {
@@ -86,23 +177,24 @@ impl Decoder {
                     let escaped = matches!(self.phase, Phase::BodyEscape);
                     let terminated = byte == 0x07 || (escaped && byte == b'\\');
                     if self.length == MAX_SEQUENCE {
-                        on_event(Err(Error::Limit(Limit::Sequence)));
                         self.phase = if terminated {
                             Phase::Ground
                         } else {
                             skip(byte, escaped)
                         };
                         self.length = 0;
+                        on_event(Err(ParserError::Limit(Limit::Sequence))).map_err(failure)?;
                     } else {
                         self.buffer[self.length] = byte;
                         self.length += 1;
                         if terminated {
-                            match parse_sequence(&self.buffer[..self.length]) {
-                                Ok(Some(event)) => on_event(Ok(event)),
-                                Err(error) => on_event(Err(error)),
+                            let length = self.length;
+                            self.reset();
+                            match parse_sequence(&self.buffer[..length]) {
+                                Ok(Some(event)) => on_event(Ok(event)).map_err(failure)?,
+                                Err(error) => on_event(Err(error)).map_err(failure)?,
                                 Ok(None) => {}
                             }
-                            self.reset();
                         } else {
                             self.phase = if byte == 0x1b {
                                 Phase::BodyEscape
@@ -117,6 +209,7 @@ impl Decoder {
                 }
             }
         }
+        Ok(())
     }
 }
 

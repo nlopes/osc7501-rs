@@ -1,6 +1,6 @@
 [package]
 name = "osc7501-store"
-description = "Bounded, allocation-free OSC 7501 terminal records"
+description = "Bounded OSC 7501 terminal records with optional allocation"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,13 @@ repository.workspace = true
 publish.workspace = true
 license.workspace = true
 readme = "README.md"
+
+[features]
+default = []
+alloc = []
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 osc7501-parser = { path = "../osc7501-parser", version = "0.1.0" }

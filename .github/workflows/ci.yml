@@ -78,3 +78,4 @@ jobs:
         with:
           env-vars: ImageOS
       - run: cargo +${{ matrix.rust }} check -p osc7501-parser -p osc7501-store --lib --target thumbv7em-none-eabihf --locked
+      - run: cargo +${{ matrix.rust }} check -p osc7501-store --lib --features alloc --target thumbv7em-none-eabihf --locked

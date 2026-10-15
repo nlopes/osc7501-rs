@@ -38,7 +38,7 @@ fn panel(title: impl Into<Line<'static>>) -> Block<'static> {
         .border_style(Style::default().fg(MUTED))
 }
 
-pub(super) fn draw(frame: &mut Frame, app: &App<'_>) {
+pub(super) fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
     frame.render_widget(
         Block::default().style(Style::default().bg(BACKGROUND).fg(TEXT)),
@@ -110,7 +110,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App<'_>) {
     );
 }
 
-fn draw_transport(frame: &mut Frame, app: &App<'_>, area: Rect) {
+fn draw_transport(frame: &mut Frame, app: &App, area: Rect) {
     let program = app.program.as_ref().map_or_else(
         || "PROGRAM EXITED".to_owned(),
         |program| format!("PROGRAM {}", program.state.as_str().to_uppercase()),
@@ -142,7 +142,7 @@ fn draw_transport(frame: &mut Frame, app: &App<'_>, area: Rect) {
     );
 }
 
-fn draw_root(frame: &mut Frame, app: &App<'_>, area: Rect) {
+fn draw_root(frame: &mut Frame, app: &App, area: Rect) {
     let line = if let Some(record) = app.host.records.get(None) {
         Line::from(vec![
             Span::styled(
@@ -169,7 +169,7 @@ fn draw_root(frame: &mut Frame, app: &App<'_>, area: Rect) {
     );
 }
 
-fn draw_tasks(frame: &mut Frame, app: &App<'_>, area: Rect) {
+fn draw_tasks(frame: &mut Frame, app: &App, area: Rect) {
     let block = panel(" Host / child records ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -224,7 +224,7 @@ fn draw_tasks(frame: &mut Frame, app: &App<'_>, area: Rect) {
     }
 }
 
-fn draw_inspector(frame: &mut Frame, app: &App<'_>, area: Rect) {
+fn draw_inspector(frame: &mut Frame, app: &App, area: Rect) {
     if app.inspect_api {
         let id = app.selected_id().map_or_else(
             || "None".to_owned(),
@@ -322,7 +322,7 @@ fn field(label: &str, value: impl Into<String>) -> Line<'static> {
     ])
 }
 
-fn draw_events(frame: &mut Frame, app: &App<'_>, area: Rect) {
+fn draw_events(frame: &mut Frame, app: &App, area: Rect) {
     let lines: Vec<_> = app
         .log
         .iter()

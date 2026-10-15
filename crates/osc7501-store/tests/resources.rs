@@ -147,19 +147,18 @@ fn check_records(store: &Store<'_>, workload: &Workload) -> Result<(), Error> {
     Ok(())
 }
 
-fn exercise(slots: &mut [Slot], workload: &Workload) -> Result<(), Error> {
-    let mut store = Store::new(slots)?;
+fn exercise(store: &mut Store<'_>, workload: &Workload) -> Result<(), Error> {
     let mut decoder = Decoder::new();
     for frame in &workload.frames {
-        assert_eq!(observe(&mut store, &mut decoder, frame)?, (1, 0, 0));
+        assert_eq!(observe(store, &mut decoder, frame)?, (1, 0, 0));
     }
     assert_eq!(store.len(), MAX_RECORDS);
     assert_eq!(
-        observe(&mut store, &mut decoder, &workload.invalid_input)?,
+        observe(store, &mut decoder, &workload.invalid_input)?,
         (0, 4, 0)
     );
     assert_eq!(store.len(), MAX_RECORDS);
-    check_records(&store, workload)?;
+    check_records(store, workload)?;
 
     let mut removals = 0;
     store.apply(report(&workload.frames[0])?, |_| removals += 1)?;
@@ -183,7 +182,7 @@ fn exercise(slots: &mut [Slot], workload: &Workload) -> Result<(), Error> {
     store.on_full_reset(|_| {});
     assert!(store.is_empty());
 
-    fill(&mut store, &workload.frames)?;
+    fill(store, &workload.frames)?;
     let mut exited = 0;
     store.on_process_exit(|record| {
         assert!(matches!(record.state(), State::Working | State::Blocked));
@@ -193,7 +192,7 @@ fn exercise(slots: &mut [Slot], workload: &Workload) -> Result<(), Error> {
     assert_eq!(store.len(), MAX_RECORDS - workload.transient);
     store.on_full_reset(|_| {});
 
-    fill(&mut store, &workload.frames)?;
+    fill(store, &workload.frames)?;
     let mut cleared = 0;
     store.apply(report(workload.clear_children.as_bytes())?, |record| {
         assert!(record.id().is_some());
@@ -236,9 +235,64 @@ fn maximum_workload(slots: &mut [Slot], workload: &Workload) -> TestResult {
         resident + STACK_SIZE
     );
     let mut result = Ok(());
-    let info = allocation_counter::measure(|| result = exercise(slots, workload));
+    let info = allocation_counter::measure(|| {
+        result = Store::from_slots(slots).and_then(|mut store| exercise(&mut store, workload));
+    });
     result?;
     assert_eq!(info.count_total, 0);
     assert_eq!(info.bytes_max, 0);
+    Ok(())
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn invalid_owned_capacity_does_not_allocate() {
+    let info = allocation_counter::measure(|| {
+        for capacity in [0, MAX_RECORDS + 1, usize::MAX] {
+            assert!(matches!(Store::new(capacity), Err(Error::InvalidCapacity)));
+        }
+    });
+    assert_eq!(info.count_total, 0);
+    assert_eq!(info.bytes_max, 0);
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn owned_storage_allocates_once_on_a_bounded_thread_stack() -> TestResult {
+    let workload = Workload::new();
+    std::thread::Builder::new()
+        .name("owned-store-resource-check".into())
+        .stack_size(STACK_SIZE)
+        .spawn(move || maximum_owned_workload(&workload))?
+        .join()
+        .map_err(|_| "owned maximum workload thread failed")?
+}
+
+#[cfg(feature = "alloc")]
+fn maximum_owned_workload(workload: &Workload) -> TestResult {
+    let mut result = Err(Error::InvalidCapacity);
+    let creation = allocation_counter::measure(|| result = Store::new(MAX_RECORDS));
+    let mut store = result?;
+    assert_eq!(creation.count_total, 1);
+    assert_eq!(creation.count_current, 1);
+    let storage_bytes = usize::try_from(creation.bytes_current)?;
+    assert!(storage_bytes >= size_of::<[Slot; MAX_RECORDS]>());
+    assert!(storage_bytes + size_of::<Store<'_>>() + STACK_SIZE < 1_000_000);
+
+    let mut result = Ok(());
+    let updates = allocation_counter::measure(|| result = exercise(&mut store, workload));
+    result?;
+    assert_eq!(updates.count_total, 0);
+    assert_eq!(updates.bytes_max, 0);
+    assert_eq!(store.capacity(), MAX_RECORDS);
+
+    let cleanup = allocation_counter::measure(|| drop(store));
+    assert_eq!(cleanup.count_total, 0);
+    assert_eq!(creation.count_current + cleanup.count_current, 0);
+    assert_eq!(creation.bytes_current + cleanup.bytes_current, 0);
+    eprintln!(
+        "owned_storage_bytes={} construction_allocations={} operation_allocations={}",
+        creation.bytes_total, creation.count_total, updates.count_total
+    );
     Ok(())
 }

@@ -1,12 +1,16 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod record;
 
 /// Parse and validate reports before applying them to the store.
 pub use osc7501_parser as parser;
 pub use record::Record;
 
+use core::ops::{Deref, DerefMut};
 use parser::{Action, AppId, RecordId, Report, State};
 use record::StoredRecord;
 
@@ -30,32 +34,91 @@ impl Slot {
     };
 }
 
-/// Current records for one terminal, backed by caller-owned fixed slots.
+enum Storage<'a> {
+    Borrowed(&'a mut [Slot]),
+    #[cfg(feature = "alloc")]
+    Owned(alloc::vec::Vec<Slot>),
+}
+
+impl Storage<'_> {
+    const fn as_slice(&self) -> &[Slot] {
+        match self {
+            Self::Borrowed(slots) => slots,
+            #[cfg(feature = "alloc")]
+            Self::Owned(slots) => slots.as_slice(),
+        }
+    }
+}
+
+impl Deref for Storage<'_> {
+    type Target = [Slot];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl DerefMut for Storage<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Borrowed(slots) => slots,
+            #[cfg(feature = "alloc")]
+            Self::Owned(slots) => slots,
+        }
+    }
+}
+
+/// Current records for one terminal with a fixed capacity.
 ///
+/// Use [`Store::from_slots`] to supply storage without an allocator.
+/// With the `alloc` feature, `Store::new(capacity)` owns heap storage instead.
 /// Updates replace every explicit field. Lookup does not affect eviction order.
 /// Removal callbacks borrow the old record before its slot is reused or cleared.
 /// Records belong to the terminal, so screen switches require no store action.
 pub struct Store<'a> {
-    slots: &'a mut [Slot],
+    slots: Storage<'a>,
     length: u16,
 }
 
+#[cfg(feature = "alloc")]
+impl Store<'static> {
+    /// Creates an empty store with heap storage for `capacity` records.
+    /// Requires the `alloc` feature. Storage is allocated once and never grows.
+    /// Capacities below 64 serve tests but do not meet the host requirement.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidCapacity`] for zero or more than 256 records,
+    /// before allocating. Returns [`Error::Allocation`] if storage cannot be reserved.
+    pub fn new(capacity: usize) -> Result<Self, Error> {
+        validate_capacity(capacity)?;
+        let mut slots = alloc::vec::Vec::new();
+        slots.try_reserve_exact(capacity)?;
+        slots.resize_with(capacity, || Slot::EMPTY);
+        Ok(Self {
+            slots: Storage::Owned(slots),
+            length: 0,
+        })
+    }
+}
+
 impl<'a> Store<'a> {
-    /// Creates an empty store and discards any records previously in the slots.
+    /// Borrows caller storage and discards any records previously in the slots.
+    /// This constructor does not allocate, including with the `alloc` feature.
     /// Capacities below 64 serve tests but do not meet the host requirement.
     ///
     /// # Errors
     /// Returns [`Error::InvalidCapacity`] for zero slots or more than 256 slots,
     /// without changing the supplied storage.
-    pub fn new(slots: &'a mut [Slot]) -> Result<Self, Error> {
-        if slots.is_empty() || slots.len() > MAX_RECORDS {
-            return Err(Error::InvalidCapacity);
-        }
+    pub fn from_slots(slots: &'a mut [Slot]) -> Result<Self, Error> {
+        validate_capacity(slots.len())?;
         for slot in &mut *slots {
             slot.record = None;
             slot.rank = 0;
         }
-        Ok(Self { slots, length: 0 })
+        Ok(Self {
+            slots: Storage::Borrowed(slots),
+            length: 0,
+        })
     }
 
     /// Returns the number of current records, including root.
@@ -73,7 +136,7 @@ impl<'a> Store<'a> {
     /// Returns the caller-selected record capacity.
     #[must_use]
     pub const fn capacity(&self) -> usize {
-        self.slots.len()
+        self.slots.as_slice().len()
     }
 
     /// Looks up a root (`None`) or child record without updating its age.
@@ -219,13 +282,24 @@ impl<'a> Store<'a> {
     }
 }
 
-/// Store capacity or field preparation failure.
+fn validate_capacity(capacity: usize) -> Result<(), Error> {
+    if capacity == 0 || capacity > MAX_RECORDS {
+        return Err(Error::InvalidCapacity);
+    }
+    Ok(())
+}
+
+/// Store capacity, allocation, or field preparation failure.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// Caller storage has zero slots or exceeds the protocol record cap.
+    /// Requested capacity is zero or exceeds the protocol record cap.
     #[error("record capacity must be between 1 and 256")]
     InvalidCapacity,
+    /// Heap storage could not be reserved. Requires the `alloc` feature.
+    #[cfg(feature = "alloc")]
+    #[error("{0}")]
+    Allocation(#[from] alloc::collections::TryReserveError),
     /// Copying or decoding a validated report field failed.
     #[error("{0}")]
     Parser(#[from] parser::Error),

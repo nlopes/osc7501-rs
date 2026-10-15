@@ -16,7 +16,7 @@ The producer's Rust library is `osc7501`. It exposes `osc7501::parser` and,
 with the optional `store` feature, `osc7501::store`. The parser and store
 both work without `std`.
 
-The host example belongs to the producer package and requires `store`.
+The host example belongs to the producer package and requires `store-alloc`.
 This keeps the store independent of the producer and its TUI dependencies.
 CI checks default and all features; docs.rs builds all features.
 
@@ -44,14 +44,30 @@ with their text validated before use. Callers decode into their own buffers
 when they need to display text. Streaming callbacks borrow the decoder's
 buffer only for the duration of the callback.
 
+`Decoder::try_feed` lets a consumer stop with its own error or stop value.
+The wrapper keeps its fields private. `consumed()` includes the byte that
+triggered the callback. `get_ref()` borrows the original value and `into_inner()`
+returns it by value. Standard error chaining is available when the callback
+error implements `core::error::Error + 'static`; feeding and recovery do not
+require that bound. The delivered event stays consumed. The caller resumes
+with the untouched suffix on the same decoder. Overflow draining also survives
+a stop. Parser errors remain callback inputs, so each consumer decides whether
+to continue after a rejected frame. `feed` uses the same scanner with a callback
+that always continues.
+
 The store is the point where data becomes independent of the input. It copies
 identifiers and decodes text before changing any record. This keeps a failed
 update from removing an old record or evicting another one.
 
-I use caller-owned slots to make the storage cost explicit. `Store::new`
-borrows the slots and starts empty; it does not hide another capacity-sized
-array in its constructor. Capacity is 1 to 256 records, including root.
-A conforming terminal host needs at least 64.
+`Store::from_slots` borrows caller-owned slots and starts empty without an
+allocator. With the optional `alloc` feature, `Store::new(capacity)` allocates
+and owns its slots. Both use the same record operations; neither creates a
+capacity-sized stack array inside its constructor. Owned storage never grows
+and is freed when the store is dropped.
+
+Capacity is 1 to 256 records, including root. A conforming terminal host needs
+at least 64. The producer's `store-alloc` feature enables `store` and forwards
+the store's `alloc` feature. Default builds remain allocator-free.
 
 ## Let the application own terminal I/O
 
@@ -110,8 +126,9 @@ for the event mapping.
 
 ## Preserve useful errors
 
-Value construction, parsing, streaming, and decoding share the parser's error
-type. `BufferTooSmall` means the destination is too small; `Limit` means
+Value construction, parsing, and decoding share the parser's error type.
+Streaming passes parser errors to the callback and wraps callback failures in
+`stream::Error`. `BufferTooSmall` means the destination is too small; `Limit` means
 input exceeded a protocol limit. Producer and store errors wrap parser errors
 without losing their source. Producer I/O errors preserve their source too.
 
@@ -123,8 +140,9 @@ disabled, and error handling does not allocate.
 ## Measure before optimizing
 
 Parsing, decoding, sending, and store operations use fixed buffers without
-heap allocation. The decoder and producer each use a 4096-byte frame buffer.
-Text validation uses a 2048-byte scratch buffer. Caller slots dominate store
+heap allocation after storage setup. The owned store constructor allocates once.
+The decoder and producer each use a 4096-byte frame buffer.
+Text validation uses a 2048-byte scratch buffer. Slots dominate store
 memory; the [measurements](performance.md) record layouts and stack checks.
 
 I would add SIMD or platform-specific code only after a measured improvement

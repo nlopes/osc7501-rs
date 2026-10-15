@@ -1,13 +1,13 @@
 //! Connect the release producer to the terminal host through encoded reports.
 
 use super::{Error, Host, program::Program};
-use osc7501::store::{Record, Slot};
+use osc7501::store::Record;
 use osc7501::{RecordId, State, write_query};
 use ratatui::crossterm::event::KeyCode;
 use std::collections::VecDeque;
 
-pub(super) struct App<'a> {
-    pub host: Host<'a>,
+pub(super) struct App {
+    pub host: Host,
     pub program: Option<Program>,
     pub replies: Vec<u8>,
     pub log: VecDeque<(State, String)>,
@@ -19,8 +19,8 @@ pub(super) struct App<'a> {
     diagnostics: Vec<u8>,
 }
 
-impl<'a> App<'a> {
-    pub fn new(slots: &'a mut [Slot]) -> Result<Self, Error> {
+impl App {
+    pub fn new(capacity: usize) -> Result<Self, Error> {
         let program = Program::new()?;
         let tasks =
             std::array::from_fn(|index| (program.tasks[index].id, program.tasks[index].title));
@@ -28,7 +28,7 @@ impl<'a> App<'a> {
         write_query(&mut bytes)?;
         program.emit_root(&mut bytes)?;
         let mut app = Self {
-            host: Host::new(slots)?,
+            host: Host::new(capacity)?,
             program: Some(program),
             replies: Vec::new(),
             log: VecDeque::new(),

@@ -13,7 +13,7 @@ use constants::ALPHABET;
 pub use osc7501_parser as parser;
 pub use parser::{AppId, Kind, Progress, RecordId, State};
 
-/// Current terminal records, available with the `store` feature.
+/// Current terminal records, available with `store`; `store-alloc` adds owned storage.
 #[cfg(feature = "store")]
 pub use osc7501_store as store;
 
