@@ -1,27 +1,25 @@
 # osc7501-store
 
-Keep current **OSC 7501 Program Status Protocol, revision 0.4** records for one
-terminal. This opt-in crate works without `std` or an allocator. It depends on
-`osc7501-parser` and has no producer dependency. The producer's optional
-`store` feature also exposes this crate as `osc7501::store`.
+Keep the current status of programs and tasks for a terminal panel or tab
+indicator. This crate implements record storage for
+[OSC 7501](https://www.superlogical.com/rex/docs/build/program-status), revision 0.4.
 
-Use it for a terminal status panel, tab indicator, or test host that needs
-current records. Applications that only send reports need the producer.
-Consumers that process each event once, or already maintain their own record
-model, can use the parser alone.
+Works without `std` or an allocator. You provide the storage.
+
+## Keep a report
 
 ```toml
 [dependencies]
 osc7501-store = "0.1"
 ```
 
-`osc7501_store::parser` exposes the parser and its types, so no separate parser
-dependency is needed.
-
-## Retain a report
+The crate exposes its parser, so you do not need a separate parser dependency:
 
 ```rust
-use osc7501_store::{MIN_HOST_CAPACITY, Slot, Store, parser::{Event, parse_sequence}};
+use osc7501_store::{
+    MIN_HOST_CAPACITY, Slot, Store,
+    parser::{Event, parse_sequence},
+};
 
 fn main() -> Result<(), osc7501_store::Error> {
     let mut slots = [const { Slot::EMPTY }; MIN_HOST_CAPACITY];
@@ -37,109 +35,68 @@ fn main() -> Result<(), osc7501_store::Error> {
 }
 ```
 
-The caller provides fixed slots and chooses where they live. `Store::new`
-starts empty, including when the slots were used by a previous store. Capacity
-is 1 through 256, including root. A conforming terminal host needs at least
-`MIN_HOST_CAPACITY` slots; smaller stores can serve tests.
+If you already use the producer, enable its `store` feature and import
+`osc7501::store` instead.
 
-Each report replaces every explicit field, so omitted fields disappear.
-Text is copied and decoded before any record changes. Read-only `Record` views
-borrow the store. `effective_app` resolves the nearest ancestor with an app
-at lookup time, even when intermediate parents are absent.
+## How records change
 
-Clear removes the addressed record and slash-delimited descendants. Root clear
-removes every record. At capacity, a new record evicts the least recently updated
-record. Reads do not change that order. Existing-record updates do not evict
-another record. Update ordering uses bounded ranks and cannot wrap.
+Each report replaces every explicit field. Omitted fields disappear.
+The store copies and decodes all fields before changing records, so it can
+retain reports after the parser's input is gone. Record views borrow the store.
 
-`apply` calls the supplied callback for each cleared or evicted record before
-removal. It does not call the callback for ordinary replacement. Removal views
-contain the old fields and cannot be retained across a store mutation. Use
-`|_| {}` when the caller does not need removal information.
+- Clearing a task removes it and its slash-delimited descendants.
+  Clearing root removes everything.
+- `effective_app` finds the nearest app on the record or its ancestors,
+  even when intermediate parents are absent.
+- At capacity, a new record evicts the least recently updated record.
+  Reads do not change that order; updating an existing record does not evict.
+- Removal callbacks receive the old record before clearing, eviction, or
+  lifecycle cleanup. Ordinary replacement does not call them.
+  Use `|_| {}` if you do not need that information.
 
-## Apply terminal lifecycle events
+`Store::new` starts empty, even with reused slots. It accepts 1 to 256 slots,
+including root. A conforming terminal host needs at least `MIN_HOST_CAPACITY`
+(64); smaller stores are useful for tests. Choose storage that fits your
+memory budget, especially on small stacks. See the
+[storage measurements](https://github.com/nlopes/osc7501-rs/blob/main/docs/performance.md#record-store-memory)
+for sizes and allocation checks.
 
-`on_prompt` and `on_process_exit` remove working and blocked records. They retain
-idle, done, and error. `on_full_reset` clears all records. Cleanup methods call
-the supplied callback before each removal. Soft resets and screen switches
-need no store action. Events apply to the terminal represented by this store;
-the library does not infer process identity from record ids.
+## Handle terminal events
 
-The store holds current records. The caller owns history, display, notifications,
-and transport. Decoded text remains plain, untrusted display data. Validation
-does not make it markup or prove its source identity.
+Your shell integration and escape-sequence handler supply these events.
+The store does not infer them from reports or record ids.
+
+| Event | What to do | Records kept |
+| --- | --- | --- |
+| New shell prompt | Call `on_prompt` | Idle, done, error |
+| Attached process exits | Call `on_process_exit` | Idle, done, error |
+| Full reset (RIS) | Call `on_full_reset` | None |
+| Soft reset (DECSTR) or screen switch | No action | All |
+
+One store represents one terminal. You own history, display, notifications,
+and transport. Treat decoded text as plain, untrusted text.
 
 ## Run a terminal host example
 
-From the repository root, run:
+From a repository checkout, run the
+[host playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs):
 
 ```sh
 cargo run -p osc7501-rs --example host --features store
 ```
 
-The [host example](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs)
-extends the producer's
-[release playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/tui.rs).
-It keeps the same three tasks, report ids, progress rates, prompts, and controls.
-The task cards now read the host's retained records. The inspector shows decoded
-fields, inherited app names, and the store API.
+It simulates a release, sends reports through a fragmented stream, and shows
+the records the host keeps. Try this:
 
-Try these steps:
+1. Press `s` to start. Select a task with the arrow keys or `Tab`;
+   `f` fails it and `r` retries.
+2. Press `i` to switch between decoded fields and the store API.
+3. Finish the release, then press `X` to simulate process exit.
+   Completed and failed results remain visible. Press `R` to clear everything.
+4. Press `q` to quit. The on-screen help lists the other controls.
 
-1. Press `s` to start tests, documentation, and packaging.
-2. Press `p`, `a`, or `?` to block for permission, authentication, or an answer.
-   `Enter` resumes. The stored root loses its old blocked kind on replacement.
-3. Select a task with the arrow keys or `Tab`. Press `f` to fail it and `r` to
-   retry. `b` switches the inspector between root and child; `i` shows the API.
-4. Complete the release, then press `X` to simulate process exit. The producer
-   and its task model are dropped. Completed and failed results remain visible.
-   Exiting during work removes working and blocked records.
-5. Press `s` for a new release. `c` or `Esc` cancels and clears the `release`
-   subtree. The separate root becomes idle.
+Use a terminal of at least 80 columns and 24 rows. Protocol support is optional.
+Unset `NO_COLOR` for colors. Piped output is plain; add `-- --plain` to request
+a text trace in a terminal.
 
-Host controls use uppercase letters: `P` starts a shell prompt, `X` simulates
-process exit, `S` applies a soft reset, and `R` applies a full reset. Soft reset
-preserves records. Full reset clears them; a running producer can send new
-reports afterwards. `q` or `Ctrl+C` quits the example.
-
-Use a terminal of at least 80 columns and 24 rows. At 30 rows, the host event
-log also appears. Unset `NO_COLOR` to enable colors. Protocol support is not
-needed. Piped output stays plain. To request a plain trace in a terminal, run:
-
-```sh
-cargo run -p osc7501-rs --example host --features store -- --plain
-```
-
-The producer writes OSC reports into an in-memory stream mixed with ordinary
-output. `Host::receive` feeds seven-byte fragments to `Decoder::feed`, applies
-accepted reports with `Store::apply`, and answers queries through a separate
-program-input writer. Each output buffer is dropped before the next redraw.
-The task cards and inspector read `Store::get` and `effective_app`, including
-after the producer is dropped. The caller owns the event log.
-
-The producer simulation is in `host/program.rs`; `host/scenario.rs` connects
-its output to the host. The example belongs to the producer package and uses
-its `store` feature. It allocates caller slots on the heap. Store operations
-still need no allocator, and the store has no TUI dependencies.
-
-In a real host, pass program output to the terminal renderer as well as the
-status decoder. The terminal's shell integration calls `on_prompt` or
-`on_process_exit`. Its escape-sequence handler calls `on_full_reset` for Reset
-to Initial State (RIS). A DEC Soft Terminal Reset (DECSTR) leaves the store
-untouched. The example supplies lifecycle events explicitly; `Decoder` only
-observes OSC 7501.
-
-Rust 1.88 or later is required.
-
-## Storage cost
-
-On macOS aarch64, one slot occupies 2480 bytes and 256 slots occupy 634880 bytes.
-Store metadata, decoder storage, and conservative preparation and validation
-buffers total 643544 bytes. The maximum-field resource test uses a 64 KiB thread
-stack, or 128 KiB on Windows. Caller slots are stored outside that stack.
-These are library resource checks, not whole-process RSS or exact stack peaks.
-Large slot arrays need storage chosen by the caller; construction does not
-create a hidden capacity-sized array.
-
-- [API documentation](https://docs.rs/osc7501-store)
-- [Protocol specification](https://www.superlogical.com/rex/docs/build/program-status)
+See the [API documentation](https://docs.rs/osc7501-store) for the full interface.
