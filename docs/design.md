@@ -37,6 +37,10 @@ It is not a status to retain or advertise as a capability. Reports replace
 all explicit fields; the library imposes no workflow restrictions on retries
 or id reuse.
 
+`Status` keeps a uniform builder because callers select states at runtime.
+Kind and progress combinations are checked before writing. `State` remains a
+plain capability value; it does not carry report fields.
+
 ## Borrow until storage is needed
 
 Parsed reports borrow their input. Messages and titles remain base64 encoded,
@@ -123,6 +127,44 @@ everything; soft reset and screen switches preserve records. The host supplies
 these events for one terminal and owns history, notifications, and display.
 See the [store guide](../crates/osc7501-store/README.md#handle-terminal-events)
 for the event mapping.
+
+## Define equality and composition
+
+The tests distinguish three observations:
+
+| Observation | What must match |
+| --- | --- |
+| Parsed representation | Fields, original base64, and original capability lists |
+| Report meaning | Action, id, explicit fields, and decoded text, including absent versus empty |
+| Store behavior | Current records, inherited apps, removals, and future eviction choices |
+
+`Report` equality preserves base64 spelling. `Capabilities` equality preserves
+list presence and unknown names. Semantic comparisons decode text or use known
+capability values. Parsing and emission preserve the meaning of valid producer
+reports; emission need not reproduce accepted input bytes. Field order,
+terminators, ignored extensions, and optional base64 padding can differ.
+
+A byte stream acts on decoder state. Feeding `x` followed by `y` must match
+feeding their concatenation, including errors and behavior on later input.
+Feeding empty input is the identity. Stopping after a callback and resuming at
+the returned position must preserve that same sequence.
+
+A report acts on the whole store, including update order. Applying commands in
+groups must preserve their original order. Commands on different ids need not
+commute: changing update order can change the next eviction. Reapplying an
+unchanged record refreshes its age. Thus reading and writing back a record is
+not an identity operation on the store.
+
+Inherited apps remain queries over the current ancestors. Copying an inherited
+app into a child would prevent later ancestor changes from reaching that child.
+Borrowed and owned storage must give the same observations for the same capacity
+and command history. Removal order within one cleanup is not specified.
+
+Generated tests use fixed random seeds and shrink failing cases. Streaming
+tests vary input and partitions, including stops and resumption. Store tests
+compare both storage forms with a model ordered by last update, then insert new
+records to expose differences in future eviction. These tests need `proptest`
+only during development; it adds no runtime dependency.
 
 ## Preserve useful errors
 

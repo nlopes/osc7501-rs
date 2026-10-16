@@ -169,6 +169,7 @@ impl<'a> Store<'a> {
     /// Applies a validated report as a complete replacement or subtree clear.
     /// A new record at capacity evicts the least recently updated record.
     /// Existing-record updates never evict another record.
+    /// Every set refreshes the record's update order, even when all fields match.
     ///
     /// Calls `on_remove` for each cleared or evicted record, before removal.
     /// Ordinary replacement does not call it. Use `|_| {}` to ignore removals.

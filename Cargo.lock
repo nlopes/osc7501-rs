@@ -454,6 +454,7 @@ dependencies = [
  "allocation-counter",
  "osc7501-parser",
  "osc7501-store",
+ "proptest",
  "ratatui",
  "thiserror",
 ]
@@ -465,6 +466,7 @@ dependencies = [
  "allocation-counter",
  "base64",
  "osc7501-parser",
+ "proptest",
  "thiserror",
 ]
 

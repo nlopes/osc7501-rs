@@ -77,9 +77,15 @@ retain reports after the parser's input is gone. Record views borrow the store.
   even when intermediate parents are absent.
 - At capacity, a new record evicts the least recently updated record.
   Reads do not change that order; updating an existing record does not evict.
+  Every set refreshes update order, even when its fields are unchanged.
 - Removal callbacks receive the old record before clearing, eviction, or
   lifecycle cleanup. Ordinary replacement does not call them.
   Use `|_| {}` if you do not need that information.
+
+Equal current records do not imply equal future behavior: update order also
+determines eviction. Preserve report order when replaying input. Removing
+unchanged updates or restoring records in an arbitrary order can change which
+record is evicted next.
 
 Both constructors accept capacities from 1 to 256 records, including root.
 A conforming terminal host needs at least `MIN_HOST_CAPACITY` (64); smaller

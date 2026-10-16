@@ -76,6 +76,11 @@ Capability replies skip unknown names and pairs. Missing lists use revision 0.4
 defaults; empty lists remain empty. A bare `Event::Query` can also be a default
 reply, so use stream direction and pending-query state to tell them apart.
 
+Equality compares parsed representations. Reports with padded and unpadded
+base64 can compare unequal even when their decoded text matches. Compare
+decoded fields for report meaning. Capability equality includes the original
+lists; use their iterators or support queries to compare known capabilities.
+
 The parser returns events without keeping records. For current status and
 terminal cleanup, use [osc7501-store](https://docs.rs/osc7501-store).
 

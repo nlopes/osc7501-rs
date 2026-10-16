@@ -246,6 +246,42 @@ fn text_round_trips_unicode_and_optional_padding() -> TestResult {
 }
 
 #[test]
+fn report_equality_preserves_base64_spelling() -> TestResult {
+    let padded = report(b"state=done:title=T0s=:msg=T0s=")?;
+    let unpadded = report(b"state=done:title=T0s:msg=T0s")?;
+    assert_ne!(padded, unpadded);
+    for (left, right) in [
+        (padded.title(), unpadded.title()),
+        (padded.message(), unpadded.message()),
+    ] {
+        let mut left_bytes = [0; 2];
+        let mut right_bytes = [0; 2];
+        assert_eq!(
+            left.ok_or("missing padded text")?
+                .decode_into(&mut left_bytes)?,
+            right
+                .ok_or("missing unpadded text")?
+                .decode_into(&mut right_bytes)?
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn capability_equality_preserves_lists_before_known_value_filtering() -> TestResult {
+    let Some(Event::Capabilities(left)) = parse_body(b"?:states=done,future:kinds=auth")? else {
+        return Err("expected capabilities".into());
+    };
+    let Some(Event::Capabilities(right)) = parse_body(b"?:states=done:kinds=auth")? else {
+        return Err("expected capabilities".into());
+    };
+    assert_ne!(left, right);
+    assert!(left.states().eq(right.states()));
+    assert!(left.kinds().eq(right.kinds()));
+    Ok(())
+}
+
+#[test]
 fn rejects_bad_base64_padding_alphabet_and_trailing_bits() {
     for encoded in [
         "A", "=", "===", "Zg=", "Zg===", "=Zg=", "Zg==a", "Zg..", "Zh==", "Zm9=", "____", "----",

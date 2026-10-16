@@ -29,6 +29,7 @@ workspace = true
 
 [dev-dependencies]
 allocation-counter = "0.8.1"
+proptest.workspace = true
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache"] }
 
 [[example]]

@@ -213,6 +213,8 @@ impl<'a> TryFrom<&'a str> for AppId<'a> {
 }
 
 /// Base64 text whose UTF-8 and absence of controls have already been validated.
+/// Equality compares the encoded form: padded and unpadded spellings can decode
+/// to the same text and still compare unequal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EncodedText<'a> {
     pub(crate) encoded: &'a str,
@@ -243,6 +245,8 @@ impl<'a> EncodedText<'a> {
 }
 
 /// A validated report. Missing fields remove the prior record's fields.
+/// Equality compares parsed fields, including the original base64 text. Compare
+/// decoded text when checking whether reports have the same meaning.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Report<'a> {
     pub(crate) action: Action,
@@ -310,6 +314,8 @@ const DEFAULT_KINDS: &[Kind] = &[Kind::Permission, Kind::Question, Kind::Auth];
 /// Feature detection reply. Unknown state and kind names are skipped.
 ///
 /// Missing lists use the fixed revision 0.4 defaults.
+/// Equality compares the original lists, including their presence and unknown
+/// names. Use the iterators or support queries to compare known capabilities.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capabilities<'a> {
     pub(crate) states: Option<&'a str>,
