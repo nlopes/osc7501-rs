@@ -59,6 +59,14 @@ a stop. Parser errors remain callback inputs, so each consumer decides whether
 to continue after a rejected frame. `feed` uses the same scanner with a callback
 that always continues.
 
+Full terminal context belongs at the host boundary. The parser's supported
+`terminal_stream` example combines `vte` dispatch with bounded retention of the
+original bytes. It checks the actual terminator because a VT OSC dispatch can
+also mean cancellation, and callback parameters need not retain every original
+byte. Segment callbacks preserve unrelated output and allow consumer-directed
+forwarding. This integration stays outside the allocation-free parsing core;
+`vte` is a development dependency only.
+
 The store is the point where data becomes independent of the input. It copies
 identifiers and decodes text before changing any record. This keeps a failed
 update from removing an old record or evicting another one.

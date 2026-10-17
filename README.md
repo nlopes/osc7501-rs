@@ -78,7 +78,7 @@ Use a terminal of at least 80 columns and 24 rows. Unset `NO_COLOR` for colors.
 The TUI sends real OSC 7501 reports. You can use the playground without
 protocol support, but a supporting terminal can also display those reports.
 
-Two more examples cover different uses:
+Other examples cover different uses:
 
 - [Terminal host](crates/osc7501-store/README.md#run-a-terminal-host-example):
   run `cargo run -p osc7501-rs --example host --features store-alloc` to see reports
@@ -87,6 +87,9 @@ Two more examples cover different uses:
 - [Text demo](crates/osc7501/examples/demo.rs):
   run `cargo run -p osc7501-rs --example demo` for a short, paced release
   simulation. Pipe its output for a plain trace without pauses.
+- [Terminal stream](crates/osc7501-parser/README.md#observe-a-terminal-stream):
+  forward a recording unchanged while observing reports with VT framing,
+  cancellation, and access to the original frame bytes.
 
 ## Working on the code
 

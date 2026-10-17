@@ -48,13 +48,15 @@ enum Phase {
     IgnoreEscape,
 }
 
-/// Bounded scanner for arbitrary chunks of terminal output.
+/// Bounded OSC scanner for chunks of terminal output.
 ///
 /// Holds at most one 4096-byte frame, never allocates, and skips other OSCs
 /// through their terminator. Each callback borrows this decoder's buffer only
 /// for that callback; decode or copy what you need before it returns.
 /// Oversized target frames produce one error and are drained through ST.
 /// Only seven-bit OSC/ST and BEL are recognized, as specified by revision 0.4.
+/// This scanner does not track full VT context or forward unrelated bytes.
+/// See the crate's terminal-stream example for that integration.
 pub struct Decoder {
     buffer: [u8; MAX_SEQUENCE],
     length: usize,
