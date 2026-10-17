@@ -41,6 +41,12 @@ or id reuse.
 Kind and progress combinations are checked before writing. `State` remains a
 plain capability value; it does not carry report fields.
 
+`Context` repeats borrowed app, id, and title fields across fresh `Status`
+values. It holds no current state, transient fields, or writer. Every call to
+`status(state)` starts with no message, progress, or blocking kind, so a later
+report cannot carry them forward by accident. Per-report overrides leave the
+context unchanged. Validation remains in `Status::write_to`.
+
 ## Borrow until storage is needed
 
 Parsed reports borrow their input. Messages and titles remain base64 encoded,

@@ -1,102 +1,112 @@
 //! Simulated release workflow with paced OSC 7501 updates.
-use osc7501::{AppId, Kind, Progress, RecordId, State, Status};
+use osc7501::{AppId, Context, Kind, Progress, RecordId, State, Status};
 use std::{
     io::{self, IsTerminal, Write},
     thread,
     time::Duration,
 };
 
-fn main() -> Result<(), osc7501::Error> {
-    let stdout = io::stdout();
-    let terminal = stdout.is_terminal();
-    let mut output = stdout.lock();
-    let app = AppId::new("osc7501-demo")?;
+fn reports() -> Result<[(&'static str, Status<'static>); 15], osc7501::Error> {
     let build = RecordId::new("build")?;
-    let test_id = RecordId::new("build/tests")?;
-    let docs_id = RecordId::new("build/docs")?;
 
-    // Each update replaces its record, so repeat the app and title.
-    let root = |state, message| {
-        Status::new(state)
-            .app(app)
-            .title("Protocol demo")
-            .message(message)
-    };
+    let root = Context::new()
+        .app(AppId::new("osc7501-demo")?)
+        .title("Protocol demo");
     // Child records inherit the root's app, even without a build parent record.
-    let tests = |state, message| {
-        Status::new(state)
-            .id(test_id)
-            .title("Tests 🦀")
-            .message(message)
-    };
-    let docs = |state, message| {
-        Status::new(state)
-            .id(docs_id)
-            .title("Documentation")
-            .message(message)
-    };
-    writeln!(output, "OSC 7501 demo: all work and prompts are simulated.")?;
-    for (label, status) in [
+    let tests = Context::new()
+        .id(RecordId::new("build/tests")?)
+        .title("Tests 🦀");
+    let docs = Context::new()
+        .id(RecordId::new("build/docs")?)
+        .title("Documentation");
+    Ok([
         (
             "idle: waiting for work",
-            root(State::Idle, "Waiting for work"),
+            root.status(State::Idle).message("Waiting for work"),
         ),
         (
             "working: preparing a release (indeterminate progress)",
-            root(State::Working, "Preparing a release"),
+            root.status(State::Working).message("Preparing a release"),
         ),
         (
             "blocked/auth: simulated sign-in",
-            root(State::Blocked, "Sign in to continue").kind(Kind::Auth),
+            root.status(State::Blocked)
+                .message("Sign in to continue")
+                .kind(Kind::Auth),
         ),
         (
             "working: signed in, starting the build (0%)",
-            root(State::Working, "Starting the build").progress(Progress::new(0)?),
+            root.status(State::Working)
+                .message("Starting the build")
+                .progress(Progress::new(0)?),
         ),
         (
             "working build/tests: running tests (25%)",
-            tests(State::Working, "Running tests").progress(Progress::new(25)?),
+            tests
+                .status(State::Working)
+                .message("Running tests")
+                .progress(Progress::new(25)?),
         ),
         (
             "working build/docs: generating documentation",
-            docs(State::Working, "Generating documentation"),
+            docs.status(State::Working)
+                .message("Generating documentation"),
         ),
         (
             "done build/tests: tests passed",
-            tests(State::Done, "Tests passed"),
+            tests.status(State::Done).message("Tests passed"),
         ),
         (
             "error build/docs: a link check failed",
-            docs(State::Error, "A link check failed"),
+            docs.status(State::Error).message("A link check failed"),
         ),
         (
             "blocked/question: simulated answer",
-            root(State::Blocked, "Which replacement link should I use?").kind(Kind::Question),
+            root.status(State::Blocked)
+                .message("Which replacement link should I use?")
+                .kind(Kind::Question),
         ),
         (
             "working build/docs: retrying with the new link (75%)",
-            docs(State::Working, "Retrying with the new link").progress(Progress::new(75)?),
+            docs.status(State::Working)
+                .message("Retrying with the new link")
+                .progress(Progress::new(75)?),
         ),
         (
             "done build/docs: documentation ready",
-            docs(State::Done, "Documentation ready"),
+            docs.status(State::Done).message("Documentation ready"),
         ),
         (
             "blocked/permission: simulated approval (100%)",
-            root(State::Blocked, "Publish this preview?")
+            root.status(State::Blocked)
+                .message("Publish this preview?")
                 .kind(Kind::Permission)
                 .progress(Progress::new(100)?),
         ),
         (
             "working: publishing the preview (100%)",
-            root(State::Working, "Publishing the preview").progress(Progress::new(100)?),
+            root.status(State::Working)
+                .message("Publishing the preview")
+                .progress(Progress::new(100)?),
         ),
         (
             "clear build: remove both child records",
             Status::clear().id(build),
         ),
-        ("done: preview ready", root(State::Done, "Preview ready")),
-    ] {
+        (
+            "done: preview ready",
+            root.status(State::Done).message("Preview ready"),
+        ),
+    ])
+}
+
+fn main() -> Result<(), osc7501::Error> {
+    let stdout = io::stdout();
+    let terminal = stdout.is_terminal();
+    let mut output = stdout.lock();
+    let reports = reports()?;
+    writeln!(output, "OSC 7501 demo: all work and prompts are simulated.")?;
+    for (label, status) in reports {
         if terminal {
             status.write_to(&mut output)?;
         }

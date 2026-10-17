@@ -44,6 +44,40 @@ an I/O error can still leave a partial frame.
 - `Status::clear().id(id)` removes that task and its children.
   `Status::clear()` removes every record.
 
+## Reuse report metadata
+
+Use `Context` when several reports share an app, record id, or title:
+
+```rust
+use osc7501::{AppId, Context, Progress, RecordId, State};
+use std::io::Write;
+
+fn build(output: &mut dyn Write) -> Result<(), osc7501::Error> {
+    let task = Context::new()
+        .app(AppId::new("cargo")?)
+        .id(RecordId::new("build/tests")?)
+        .title("Test suite");
+
+    task.status(State::Working)
+        .progress(Progress::new(25)?)
+        .message("Running tests")
+        .write_to(output)?;
+    task.status(State::Done).write_to(output)?;
+    output.flush()?;
+    Ok(())
+}
+```
+
+Each `status(state)` starts a fresh report with the context's app, id, and title.
+The `done` report above has no message, progress, or blocking kind. Set those
+fields explicitly on each report that needs them. Reports still replace all
+fields in the terminal's record.
+
+A context borrows its fields and allocates nothing. It holds no writer or
+current status. Report setters can override the repeated fields without
+changing the context. Title validation still happens in `Status::write_to`.
+Omit `.app(...)` for child records that should inherit their app from an ancestor.
+
 ## Reply from a terminal host
 
 Use `CapabilityReply` with the writer that sends input to the program.

@@ -2,8 +2,10 @@
 
 mod capabilities;
 mod constants;
+mod context;
 
 pub use capabilities::CapabilityReply;
+pub use context::Context;
 
 use std::io::{self, Write};
 

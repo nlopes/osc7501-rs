@@ -39,9 +39,10 @@ updates stay in order. You control flushing. Invalid reports are rejected
 before any bytes are sent.
 
 Each report replaces all fields of its record, so repeat fields you want to
-keep. Send `idle` after cancellation, or `done` or `error` when work ends.
-The [producer guide](crates/osc7501/README.md) covers child tasks, progress,
-and terminal capability replies.
+keep. Use `Context` to repeat app, id, and title across fresh status reports.
+Send `idle` after cancellation, or `done` or `error` when work ends.
+The [producer guide](crates/osc7501/README.md) covers reusable contexts, child
+tasks, progress, and terminal capability replies.
 
 ## Choose a crate
 
