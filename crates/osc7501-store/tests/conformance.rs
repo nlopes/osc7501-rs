@@ -1,10 +1,18 @@
 //! Current-record semantics through the parser and store public APIs.
 use osc7501_store::{
-    Error, MAX_RECORDS, MIN_HOST_CAPACITY, Record, Slot, Store,
+    Change, Error, MAX_RECORDS, MIN_HOST_CAPACITY, Record, Slot, Store,
     parser::{self, AppId, Decoder, Event, Kind, RecordId, Report, State, parse_body},
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+fn only_removals(mut receive: impl FnMut(Record<'_>)) -> impl FnMut(Change<'_>) {
+    move |change| {
+        if let Change::Remove(record) = change {
+            receive(record);
+        }
+    }
+}
 
 fn report(body: &[u8]) -> Result<Report<'_>, parser::Error> {
     match parse_body(body)? {
@@ -14,7 +22,7 @@ fn report(body: &[u8]) -> Result<Report<'_>, parser::Error> {
 }
 
 fn apply(store: &mut Store<'_>, body: &[u8]) -> Result<(), Error> {
-    store.apply(report(body)?, |_| {})
+    store.apply(report(body)?)
 }
 
 #[test]
@@ -73,7 +81,10 @@ fn replacement_removes_every_omitted_field() -> TestResult {
     assert_eq!(record.message(), Some("España"));
 
     let mut removals = 0;
-    store.apply(report(b"state=working:id=build/test")?, |_| removals += 1)?;
+    store.apply_with_changes(
+        report(b"state=working:id=build/test")?,
+        only_removals(|_| removals += 1),
+    )?;
     let record = store.get(id).ok_or("missing replacement")?;
     assert_eq!(record.state(), State::Working);
     assert_eq!(record.app(), None);
@@ -113,9 +124,12 @@ fn root_counts_toward_capacity_and_can_be_evicted() -> TestResult {
         1
     );
     let mut removed = Vec::new();
-    store.apply(report(b"state=working:id=test")?, |record| {
-        removed.push((record.id().map(|id| id.as_str().to_owned()), record.state()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=working:id=test")?,
+        only_removals(|record| {
+            removed.push((record.id().map(|id| id.as_str().to_owned()), record.state()));
+        }),
+    )?;
     assert_eq!(removed, [(None, State::Done)]);
     assert!(store.get(None).is_none());
     assert!(store.get(Some(RecordId::new("build")?)).is_some());
@@ -138,13 +152,16 @@ fn capacity_boundaries_replace_existing_and_evict_only_for_new_ids() -> TestResu
         }
         assert_eq!(store.len(), capacity);
         let mut removals = 0;
-        store.apply(report(b"state=working")?, |_| removals += 1)?;
+        store.apply_with_changes(report(b"state=working")?, only_removals(|_| removals += 1))?;
         assert_eq!(removals, 0);
         let mut oldest = None;
-        store.apply(report(b"state=done:id=new")?, |record| {
-            removals += 1;
-            oldest = record.id().map(|id| id.as_str().to_owned());
-        })?;
+        store.apply_with_changes(
+            report(b"state=done:id=new")?,
+            only_removals(|record| {
+                removals += 1;
+                oldest = record.id().map(|id| id.as_str().to_owned());
+            }),
+        )?;
         assert_eq!(removals, 1);
         assert_eq!(store.len(), capacity);
         assert_eq!(oldest.as_deref(), (capacity > 1).then_some("record1"));
@@ -173,12 +190,12 @@ fn app_inheritance_tracks_changes_and_missing_ancestors() -> TestResult {
     apply(&mut store, b"state=done:id=a/b/c:app=child")?;
     assert_eq!(store.effective_app(child), Some(AppId::new("child")?));
     apply(&mut store, b"state=done:id=a/b/c")?;
-    store.on_prompt(|_| {});
+    store.on_prompt();
     assert_eq!(store.effective_app(child), Some(AppId::new("changed")?));
     assert_eq!(store.get(child).and_then(Record::app), None);
     apply(&mut store, b"state=working:id=a:app=temporary")?;
     assert_eq!(store.effective_app(child), Some(AppId::new("temporary")?));
-    store.on_process_exit(|_| {});
+    store.on_process_exit();
     assert_eq!(store.effective_app(child), Some(AppId::new("root")?));
     apply(&mut store, b"state=done")?;
     assert_eq!(store.effective_app(child), None);
@@ -200,9 +217,12 @@ fn evicting_an_ancestor_changes_app_without_rewriting_children() -> TestResult {
     apply(&mut store, b"state=done:app=new-root")?;
     assert_eq!(store.effective_app(child), Some(AppId::new("cargo")?));
     let mut removed = None;
-    store.apply(report(b"state=done:id=other")?, |record| {
-        removed = record.id().map(|id| id.as_str().to_owned());
-    })?;
+    store.apply_with_changes(
+        report(b"state=done:id=other")?,
+        only_removals(|record| {
+            removed = record.id().map(|id| id.as_str().to_owned());
+        }),
+    )?;
     assert_eq!(removed.as_deref(), Some("build"));
     assert_eq!(store.effective_app(child), Some(AppId::new("new-root")?));
     assert_eq!(store.get(child).and_then(Record::app), None);
@@ -225,9 +245,12 @@ fn clear_obeys_slash_boundaries_and_absent_parents() -> TestResult {
         apply(&mut store, body)?;
     }
     let mut removed = Vec::new();
-    store.apply(report(b"state=clear:id=build")?, |record| {
-        removed.push((record.id().map(|id| id.as_str().to_owned()), record.state()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=clear:id=build")?,
+        only_removals(|record| {
+            removed.push((record.id().map(|id| id.as_str().to_owned()), record.state()));
+        }),
+    )?;
     removed.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         removed,
@@ -242,12 +265,18 @@ fn clear_obeys_slash_boundaries_and_absent_parents() -> TestResult {
     }
     apply(&mut store, b"state=done:id=build/test/deep")?;
     let mut count = 0;
-    store.apply(report(b"state=clear:id=build")?, |_| count += 1)?;
+    store.apply_with_changes(
+        report(b"state=clear:id=build")?,
+        only_removals(|_| count += 1),
+    )?;
     assert_eq!(count, 1);
     assert_eq!(store.len(), 4);
-    store.apply(report(b"state=clear:id=missing")?, |_| count += 1)?;
+    store.apply_with_changes(
+        report(b"state=clear:id=missing")?,
+        only_removals(|_| count += 1),
+    )?;
     assert_eq!(count, 1);
-    store.apply(report(b"state=clear")?, |_| count += 1)?;
+    store.apply_with_changes(report(b"state=clear")?, only_removals(|_| count += 1))?;
     assert_eq!(count, 5);
     assert!(store.is_empty());
     assert_eq!(store.iter().count(), 0);
@@ -284,24 +313,36 @@ fn reads_replacements_and_clears_preserve_eviction_order() -> TestResult {
     assert_eq!(store.effective_app(None), Some(AppId::new("root")?));
     assert_eq!(store.iter().count(), 3);
     let mut removed = Vec::new();
-    store.apply(report(b"state=working:id=c")?, |record| {
-        removed.push(record.id().map(|id| id.as_str().to_owned()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=working:id=c")?,
+        only_removals(|record| {
+            removed.push(record.id().map(|id| id.as_str().to_owned()));
+        }),
+    )?;
     assert_eq!(removed, [None]);
-    store.apply(report(b"state=working:id=b")?, |_| {
-        removed.push(Some("unexpected replacement removal".to_owned()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=working:id=b")?,
+        only_removals(|_| {
+            removed.push(Some("unexpected replacement removal".to_owned()));
+        }),
+    )?;
     assert_eq!(removed, [None]);
-    store.apply(report(b"state=working:id=d")?, |record| {
-        assert_eq!(record.message(), Some("OK"));
-        removed.push(record.id().map(|id| id.as_str().to_owned()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=working:id=d")?,
+        only_removals(|record| {
+            assert_eq!(record.message(), Some("OK"));
+            removed.push(record.id().map(|id| id.as_str().to_owned()));
+        }),
+    )?;
     assert_eq!(removed, [None, Some("a".to_owned())]);
     apply(&mut store, b"state=clear:id=c")?;
     apply(&mut store, b"state=done:id=e")?;
-    store.apply(report(b"state=done:id=f")?, |record| {
-        removed.push(record.id().map(|id| id.as_str().to_owned()));
-    })?;
+    store.apply_with_changes(
+        report(b"state=done:id=f")?,
+        only_removals(|record| {
+            removed.push(record.id().map(|id| id.as_str().to_owned()));
+        }),
+    )?;
     assert_eq!(removed, [None, Some("a".to_owned()), Some("b".to_owned())]);
     assert_eq!(store.len(), 3);
     Ok(())
@@ -316,16 +357,18 @@ fn repeated_updates_cannot_roll_over_eviction_order() -> TestResult {
     }
     let a = report(b"state=working:id=a")?;
     let b = report(b"state=working:id=b")?;
-    let mut removals = 0;
     for _ in 0..70_000 {
-        store.apply(a, |_| removals += 1)?;
-        store.apply(b, |_| removals += 1)?;
+        store.apply(a)?;
+        store.apply(b)?;
     }
-    assert_eq!(removals, 0);
+    assert_eq!(store.len(), 3);
     let mut oldest = None;
-    store.apply(report(b"state=done:id=d")?, |record| {
-        oldest = record.id().map(|id| id.as_str().to_owned());
-    })?;
+    store.apply_with_changes(
+        report(b"state=done:id=d")?,
+        only_removals(|record| {
+            oldest = record.id().map(|id| id.as_str().to_owned());
+        }),
+    )?;
     assert_eq!(oldest.as_deref(), Some("c"));
     assert_eq!(store.len(), 3);
     Ok(())
@@ -354,9 +397,9 @@ fn prompt_and_exit_remove_only_working_and_blocked() -> TestResult {
         let mut removed = Vec::new();
         let on_remove = |record: osc7501_store::Record<'_>| removed.push(record.state());
         if process_exit {
-            store.on_process_exit(on_remove);
+            store.on_process_exit_with_changes(only_removals(on_remove));
         } else {
-            store.on_prompt(on_remove);
+            store.on_prompt_with_changes(only_removals(on_remove));
         }
         assert_eq!(removed.len(), 2);
         assert!(removed.contains(&State::Working));
@@ -391,7 +434,7 @@ fn full_reset_clears_all_states_and_calls_removal_callback() -> TestResult {
         assert!(states.contains(&state));
     }
     let mut removed = Vec::new();
-    store.on_full_reset(|record| removed.push(record.state()));
+    store.on_full_reset_with_changes(only_removals(|record| removed.push(record.state())));
     assert_eq!(removed, states);
     assert!(store.is_empty());
     all_states(&mut store)?;
@@ -415,7 +458,9 @@ fn ignored_and_rejected_frames_do_not_mutate_or_age_full_store() -> TestResult {
         decoder.feed(chunk, |event| match event {
             Ok(Event::Report(report)) => {
                 accepted += 1;
-                if let Err(error) = store.apply(report, |_| removals += 1) {
+                if let Err(error) =
+                    store.apply_with_changes(report, only_removals(|_| removals += 1))
+                {
                     result = Err(error);
                 }
             }
@@ -438,9 +483,12 @@ fn ignored_and_rejected_frames_do_not_mutate_or_age_full_store() -> TestResult {
         Some(State::Error)
     );
     let mut oldest = None;
-    store.apply(report(b"state=done:id=third")?, |record| {
-        oldest = record.id().map(|id| id.as_str().to_owned());
-    })?;
+    store.apply_with_changes(
+        report(b"state=done:id=third")?,
+        only_removals(|record| {
+            oldest = record.id().map(|id| id.as_str().to_owned());
+        }),
+    )?;
     assert_eq!(oldest.as_deref(), Some("first"));
     Ok(())
 }

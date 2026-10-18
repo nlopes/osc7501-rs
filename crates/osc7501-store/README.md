@@ -27,7 +27,7 @@ fn main() -> Result<(), osc7501_store::Error> {
     let mut store = Store::new(MIN_HOST_CAPACITY)?;
     let input = b"\x1b]7501;state=done:app=cargo:msg=T0s=\x1b\\";
     if let Some(Event::Report(report)) = parse_sequence(input)? {
-        store.apply(report, |_| {})?;
+        store.apply(report)?;
     }
     if let Some(record) = store.get(None) {
         assert_eq!(record.message(), Some("OK"));
@@ -60,8 +60,8 @@ let mut store = Store::from_slots(&mut slots)?;
 ```
 
 This constructor is also available with `alloc` enabled. It starts empty,
-even with reused slots. It replaces the former `Store::new(&mut slots)` call.
-Choose storage that fits your memory budget, especially on small stacks.
+even with reused slots. Choose storage that fits your memory budget,
+especially on small stacks.
 See the [storage measurements](https://github.com/nlopes/osc7501-rs/blob/main/docs/performance.md#record-store-memory)
 for sizes and allocation checks.
 
@@ -78,9 +78,8 @@ retain reports after the parser's input is gone. Record views borrow the store.
 - At capacity, a new record evicts the least recently updated record.
   Reads do not change that order; updating an existing record does not evict.
   Every set refreshes update order, even when its fields are unchanged.
-- Removal callbacks receive the old record before clearing, eviction, or
-  lifecycle cleanup. Ordinary replacement does not call them.
-  Use `|_| {}` if you do not need that information.
+- `apply` and the plain lifecycle methods update the store without collecting
+  notifications. Use their `_with_changes` variants to observe changes.
 
 Equal current records do not imply equal future behavior: update order also
 determines eviction. Preserve report order when replaying input. Removing
@@ -90,6 +89,91 @@ record is evicted next.
 Both constructors accept capacities from 1 to 256 records, including root.
 A conforming terminal host needs at least `MIN_HOST_CAPACITY` (64); smaller
 stores are useful for tests.
+
+## Observe record changes
+
+Use `apply_with_changes` to keep a UI or a history of visible record states in
+sync without copying and comparing the whole store. These notifications describe
+changes to current records and resolved apps:
+
+- An unchanged report emits no notification, but still refreshes eviction order.
+- A child can receive a set notification because its ancestor's app changed,
+  even when the child sent no report.
+
+Keep the incoming reports and lifecycle events when you need every update or
+must reproduce the store's eviction order. Change notifications alone cannot
+restore that history.
+
+The callback receives:
+
+- `Change::Remove(record)` before a record is removed.
+- `Change::Set { record, effective_app }` for each new record, changed explicit
+  field, or changed inherited app. Each surviving record is delivered at most
+  once, after the complete operation.
+
+All removals precede sets. Order within either group is unspecified. Effective
+apps reflect the final store, including ancestor insertion, replacement, and
+eviction. An unchanged app value produces no descendant notification, even if
+the ancestor supplying it changes.
+
+This example maintains a view of states and resolved apps. Copy other fields
+in the callback if your application needs them:
+
+```rust
+use std::collections::BTreeMap;
+use osc7501_store::{Change, Slot, Store, parser::{Event, parse_body}};
+
+# fn main() -> Result<(), osc7501_store::Error> {
+let mut slots = [const { Slot::EMPTY }; 2];
+let mut store = Store::from_slots(&mut slots)?;
+let mut view = BTreeMap::new();
+let mut update = |change: Change<'_>| match change {
+    Change::Set { record, effective_app } => {
+        let id = record.id().map(|id| id.as_str().to_owned());
+        let app = effective_app.map(|app| app.as_str().to_owned());
+        view.insert(id, (record.state(), app));
+    }
+    Change::Remove(record) => {
+        let id = record.id().map(|id| id.as_str().to_owned());
+        view.remove(&id);
+    }
+    _ => {}
+};
+for body in [b"state=done:id=build/test".as_slice(), b"state=working:app=cargo"] {
+    if let Some(Event::Report(report)) = parse_body(body)? {
+        store.apply_with_changes(report, &mut update)?;
+    }
+}
+store.on_prompt_with_changes(&mut update);
+# assert_eq!(view.len(), 1);
+# assert_eq!(view.get(&Some("build/test".into())), Some(&(osc7501_store::parser::State::Done, None)));
+# Ok(())
+# }
+```
+
+The child inherits `cargo` when the root arrives. Prompt cleanup removes the
+working root and updates the surviving child to have no effective app.
+Use the same callback for every operation that affects an observed view,
+including `on_prompt_with_changes`, `on_process_exit_with_changes`, and
+`on_full_reset_with_changes`. Calling a plain method changes the store without
+updating that view. If observation starts on a populated store, first initialize
+the view from `iter()` and `effective_app()`.
+
+The runnable [observer example](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501-store/examples/observe.rs)
+routes reports and lifecycle events through one handler. It copies selected
+fields into an application-owned view, which remains usable after the store is
+dropped:
+
+```sh
+cargo run -p osc7501-store --example observe --features alloc
+```
+
+Use `apply(report)`, `on_prompt()`, `on_process_exit()`, and `on_full_reset()`
+when you do not need notifications; they avoid change detection.
+
+Callbacks borrow records only for the call. Store operations remain allocation-free;
+the map above allocates because it is application-owned. Change detection uses
+bounded scratch storage for effective apps, and compares decoded field values.
 
 ## Handle terminal events
 

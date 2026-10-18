@@ -87,6 +87,16 @@ Capacity is 1 to 256 records, including root. A conforming terminal host needs
 at least 64. The producer's `store-alloc` feature enables `store` and forwards
 the store's `alloc` feature. Default builds remain allocator-free.
 
+Change reporting is opt-in through `apply_with_changes` and the corresponding
+lifecycle methods. Removals expose the old record before it is discarded;
+sets expose changed surviving records with their final effective apps. A bounded
+snapshot of effective apps detects ancestor changes without copying every record.
+Comparison uses decoded fields and resolved app values. Changing only base64
+spelling produces no notification. A descendant is unchanged when a different
+ancestor supplies the same app value. Identical reports still update eviction
+order. Plain `apply` and lifecycle methods take no callback and avoid the app
+snapshots and comparisons.
+
 ## Let the application own terminal I/O
 
 Report and reply writers accept concrete writers and `&mut dyn Write`.

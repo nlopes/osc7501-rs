@@ -68,7 +68,7 @@ impl Host {
                 .try_feed(chunk, |event| match event {
                     Ok(Event::Report(report)) => self
                         .records
-                        .apply(report, |_| {})
+                        .apply(report)
                         .map(|()| {
                             self.reports_received += 1;
                         })
@@ -326,7 +326,7 @@ mod tests {
             &mut replies,
             &mut trace,
         )?;
-        host.records.on_prompt(|_| {});
+        host.records.on_prompt();
         let record = host
             .records
             .get(Some(id))

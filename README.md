@@ -91,6 +91,8 @@ Other examples cover different uses:
 - [Terminal stream](crates/osc7501-parser/README.md#observe-a-terminal-stream):
   forward a recording unchanged while observing reports with VT framing,
   cancellation, and access to the original frame bytes.
+- [Record observer](crates/osc7501-store/README.md#observe-record-changes):
+  keep an owned view in sync across reports and terminal lifecycle events.
 
 ## Working on the code
 

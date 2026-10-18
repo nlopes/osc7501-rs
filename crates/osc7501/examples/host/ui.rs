@@ -231,7 +231,7 @@ fn draw_inspector(frame: &mut Frame, app: &App, area: Rect) {
             |id| format!("Some(RecordId::new({:?})?)", id.as_str()),
         );
         let code = format!(
-            "// Accepted Decoder::feed report:\nresult = store.apply(report, |_| {{}});\n\n// After feed, release input and draw:\nresult?;\nlet id = {id};\nlet record = store.get(id);\nlet app = store.effective_app(id);"
+            "// Accepted Decoder::feed report:\nresult = store.apply(report);\n\n// After feed, release input and draw:\nresult?;\nlet id = {id};\nlet record = store.get(id);\nlet app = store.effective_app(id);"
         );
         let mut lines: Vec<_> = code
             .lines()
@@ -244,9 +244,9 @@ fn draw_inspector(frame: &mut Frame, app: &App, area: Rect) {
                     "// Terminal lifecycle, supplied by host:",
                     Style::default().fg(MUTED),
                 ),
-                Line::raw("store.on_process_exit(|_| {});"),
+                Line::raw("store.on_process_exit();"),
                 Line::raw("// done and error survive"),
-                Line::raw("store.on_full_reset(|_| {});"),
+                Line::raw("store.on_full_reset();"),
             ]);
         }
         frame.render_widget(

@@ -74,6 +74,18 @@ impl StoredRecord {
     pub(crate) const fn view(&self) -> Record<'_> {
         Record { stored: self }
     }
+
+    pub(crate) fn same_fields(&self, other: &Self) -> bool {
+        let left = self.view();
+        let right = other.view();
+        left.state() == right.state()
+            && left.id() == right.id()
+            && left.app() == right.app()
+            && left.title() == right.title()
+            && left.message() == right.message()
+            && left.kind() == right.kind()
+            && left.progress() == right.progress()
+    }
 }
 
 /// A read-only view of a current record. Text is decoded, plain, and untrusted.

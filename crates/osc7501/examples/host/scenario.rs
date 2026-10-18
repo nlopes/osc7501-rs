@@ -126,12 +126,13 @@ impl App {
     pub fn finish(&mut self, prompt: bool) {
         // The host must not depend on the producer's task model after exit.
         self.program = None;
-        let mut removed = 0;
+        let before = self.host.records.len();
         if prompt {
-            self.host.records.on_prompt(|_| removed += 1);
+            self.host.records.on_prompt();
         } else {
-            self.host.records.on_process_exit(|_| removed += 1);
+            self.host.records.on_process_exit();
         }
+        let removed = before - self.host.records.len();
         self.record(
             State::Idle,
             format!(
@@ -153,7 +154,7 @@ impl App {
     }
 
     pub fn full_reset(&mut self) {
-        self.host.records.on_full_reset(|_| {});
+        self.host.records.on_full_reset();
         self.host.decoder.reset();
         self.record(State::Idle, "Full reset cleared every current record");
         self.insight = "Full reset clears the store. It does not stop the program; later reports can create records again.";

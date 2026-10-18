@@ -107,6 +107,13 @@ These figures cover library storage. They do not measure exact stack peaks or
 whole-process RSS, which also includes the runtime, allocator, UI, and caller data.
 A successful stack check proves only that the tested workload fit.
 
+The change-reporting workload also runs at 256 records. It checks unchanged
+maximum-field replacements, all-record app inheritance changes, and lifecycle
+removals with surviving descendants. Change detection adds a fixed stack table
+of effective apps; record storage does not grow. The new methods allocate
+nothing during these operations. The bounded-stack tests include this table.
+The named-scratch totals above describe the plain API without change reporting.
+
 ## Recheck resource use
 
 Run the store resource tests in both build modes to check layouts, allocations,

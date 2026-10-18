@@ -1,7 +1,7 @@
 //! Maximum-field storage and allocation checks on a bounded thread stack.
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use osc7501_store::{
-    Error, MAX_RECORDS, Record, Slot, Store,
+    Change, Error, MAX_RECORDS, Record, Slot, Store,
     parser::{
         self, AppId, Decoder, Event, MAX_APP, MAX_ID, MAX_MESSAGE, MAX_SEQUENCE, MAX_TITLE,
         RecordId, Report, State, parse_sequence,
@@ -23,6 +23,7 @@ const STATES: [State; 5] = [
 
 struct Workload {
     frames: Vec<Vec<u8>>,
+    inherited_frames: Vec<Vec<u8>>,
     ids: Vec<Option<String>>,
     app: String,
     title: String,
@@ -44,7 +45,7 @@ impl Workload {
             .collect();
         let encoded_title = STANDARD.encode(&title);
         let encoded_message = STANDARD.encode(&message);
-        let frames = ids
+        let frames: Vec<Vec<u8>> = ids
             .iter()
             .enumerate()
             .map(|(index, id)| {
@@ -53,6 +54,19 @@ impl Workload {
                     "\x1b]7501;state={}{id}:app={app}:kind=permission:progress=100:title={encoded_title}:msg={encoded_message}\x1b\\",
                     STATES[index % STATES.len()].as_str()
                 ).into_bytes()
+            })
+            .collect();
+        let inherited_frames = frames
+            .iter()
+            .enumerate()
+            .map(|(index, frame)| {
+                if index == 0 {
+                    frame.clone()
+                } else {
+                    String::from_utf8_lossy(frame)
+                        .replace(&format!(":app={app}"), "")
+                        .into_bytes()
+                }
             })
             .collect();
         let clear_children = format!("\x1b]7501;state=clear:id={segment}\x1b\\");
@@ -70,6 +84,7 @@ impl Workload {
             .count();
         Self {
             frames,
+            inherited_frames,
             ids,
             app,
             title,
@@ -77,6 +92,14 @@ impl Workload {
             clear_children,
             invalid_input,
             transient,
+        }
+    }
+}
+
+fn only_removals(mut receive: impl FnMut(Record<'_>)) -> impl FnMut(Change<'_>) {
+    move |change| {
+        if let Change::Remove(record) = change {
+            receive(record);
         }
     }
 }
@@ -90,7 +113,7 @@ fn report(frame: &[u8]) -> Result<Report<'_>, Error> {
 
 fn fill(store: &mut Store<'_>, frames: &[Vec<u8>]) -> Result<(), Error> {
     for frame in frames {
-        store.apply(report(frame)?, |_| {})?;
+        store.apply(report(frame)?)?;
     }
     Ok(())
 }
@@ -99,14 +122,14 @@ fn observe(
     store: &mut Store<'_>,
     decoder: &mut Decoder,
     input: &[u8],
-) -> Result<(usize, usize, usize), Error> {
-    let (mut accepted, mut rejected, mut removed) = (0, 0, 0);
+) -> Result<(usize, usize), Error> {
+    let (mut accepted, mut rejected) = (0, 0);
     let mut failure = None;
     for chunk in input.chunks(31) {
         decoder.feed(chunk, |event| match event {
             Ok(Event::Report(report)) => {
                 accepted += 1;
-                if let Err(error) = store.apply(report, |_| removed += 1) {
+                if let Err(error) = store.apply(report) {
                     failure = Some(error);
                 }
             }
@@ -117,7 +140,7 @@ fn observe(
     if let Some(error) = failure {
         return Err(error);
     }
-    Ok((accepted, rejected, removed))
+    Ok((accepted, rejected))
 }
 
 fn check_records(store: &Store<'_>, workload: &Workload) -> Result<(), Error> {
@@ -150,59 +173,118 @@ fn check_records(store: &Store<'_>, workload: &Workload) -> Result<(), Error> {
 fn exercise(store: &mut Store<'_>, workload: &Workload) -> Result<(), Error> {
     let mut decoder = Decoder::new();
     for frame in &workload.frames {
-        assert_eq!(observe(store, &mut decoder, frame)?, (1, 0, 0));
+        assert_eq!(observe(store, &mut decoder, frame)?, (1, 0));
     }
     assert_eq!(store.len(), MAX_RECORDS);
     assert_eq!(
         observe(store, &mut decoder, &workload.invalid_input)?,
-        (0, 4, 0)
+        (0, 4)
     );
     assert_eq!(store.len(), MAX_RECORDS);
     check_records(store, workload)?;
 
     let mut removals = 0;
-    store.apply(report(&workload.frames[0])?, |_| removals += 1)?;
+    store.apply_with_changes(
+        report(&workload.frames[0])?,
+        only_removals(|_| removals += 1),
+    )?;
     assert_eq!(removals, 0);
-    store.apply(report(b"\x1b]7501;state=done:id=extra\x1b\\")?, |record| {
-        assert_eq!(
-            record.id().map(RecordId::as_str),
-            workload.ids[1].as_deref()
-        );
-        assert_eq!(record.message(), Some(workload.message.as_str()));
-        removals += 1;
-    })?;
+    store.apply_with_changes(
+        report(b"\x1b]7501;state=done:id=extra\x1b\\")?,
+        only_removals(|record| {
+            assert_eq!(
+                record.id().map(RecordId::as_str),
+                workload.ids[1].as_deref()
+            );
+            assert_eq!(record.message(), Some(workload.message.as_str()));
+            removals += 1;
+        }),
+    )?;
     assert_eq!(removals, 1);
     assert_eq!(store.len(), MAX_RECORDS);
-    store.on_prompt(|record| {
+    store.on_prompt_with_changes(only_removals(|record| {
         assert!(matches!(record.state(), State::Working | State::Blocked));
         removals += 1;
-    });
+    }));
     assert_eq!(store.len(), MAX_RECORDS - workload.transient + 1);
     assert_eq!(removals, workload.transient);
-    store.on_full_reset(|_| {});
+    store.on_full_reset();
     assert!(store.is_empty());
 
     fill(store, &workload.frames)?;
     let mut exited = 0;
-    store.on_process_exit(|record| {
+    store.on_process_exit_with_changes(only_removals(|record| {
         assert!(matches!(record.state(), State::Working | State::Blocked));
         exited += 1;
-    });
+    }));
     assert_eq!(exited, workload.transient);
     assert_eq!(store.len(), MAX_RECORDS - workload.transient);
-    store.on_full_reset(|_| {});
+    store.on_full_reset();
 
     fill(store, &workload.frames)?;
     let mut cleared = 0;
-    store.apply(report(workload.clear_children.as_bytes())?, |record| {
-        assert!(record.id().is_some());
-        assert_eq!(record.message(), Some(workload.message.as_str()));
-        cleared += 1;
-    })?;
+    store.apply_with_changes(
+        report(workload.clear_children.as_bytes())?,
+        only_removals(|record| {
+            assert!(record.id().is_some());
+            assert_eq!(record.message(), Some(workload.message.as_str()));
+            cleared += 1;
+        }),
+    )?;
     assert_eq!(cleared, MAX_RECORDS - 1);
     assert_eq!(store.len(), 1);
-    store.apply(report(b"\x1b]7501;state=clear\x1b\\")?, |_| cleared += 1)?;
+    store.apply_with_changes(
+        report(b"\x1b]7501;state=clear\x1b\\")?,
+        only_removals(|_| cleared += 1),
+    )?;
     assert_eq!(cleared, MAX_RECORDS);
+    assert!(store.is_empty());
+    Ok(())
+}
+
+fn exercise_changes(store: &mut Store<'_>, workload: &Workload) -> Result<(), Error> {
+    fill(store, &workload.frames)?;
+    let mut changes = 0;
+    for frame in &workload.frames {
+        store.apply_with_changes(report(frame)?, |_| changes += 1)?;
+    }
+    assert_eq!(changes, 0);
+    store.on_full_reset_with_changes(|change| {
+        assert!(matches!(change, Change::Remove(_)));
+        changes += 1;
+    });
+    assert_eq!(changes, MAX_RECORDS);
+
+    fill(store, &workload.inherited_frames)?;
+    changes = 0;
+    store.apply_with_changes(report(b"\x1b]7501;state=working:app=next\x07")?, |change| {
+        assert!(
+            matches!(change, Change::Set { effective_app: Some(app), .. } if app.as_str() == "next")
+        );
+        changes += 1;
+    })?;
+    assert_eq!(changes, MAX_RECORDS);
+    let mut removed = 0;
+    let mut updated = 0;
+    store.on_prompt_with_changes(|change| match change {
+        Change::Remove(_) => removed += 1,
+        Change::Set { effective_app, .. } => {
+            assert_eq!(effective_app, None);
+            updated += 1;
+        }
+        _ => {}
+    });
+    assert_eq!(removed, workload.transient + 1);
+    assert_eq!(updated, MAX_RECORDS - removed);
+    store.on_full_reset_with_changes(|_| {});
+    fill(store, &workload.inherited_frames)?;
+    removed = 0;
+    store.on_process_exit_with_changes(|change| {
+        assert!(matches!(change, Change::Remove(_)));
+        removed += 1;
+    });
+    assert_eq!(removed, workload.transient);
+    store.on_full_reset_with_changes(|_| {});
     assert!(store.is_empty());
     Ok(())
 }
@@ -236,7 +318,10 @@ fn maximum_workload(slots: &mut [Slot], workload: &Workload) -> TestResult {
     );
     let mut result = Ok(());
     let info = allocation_counter::measure(|| {
-        result = Store::from_slots(slots).and_then(|mut store| exercise(&mut store, workload));
+        result = Store::from_slots(slots).and_then(|mut store| {
+            exercise(&mut store, workload)?;
+            exercise_changes(&mut store, workload)
+        });
     });
     result?;
     assert_eq!(info.count_total, 0);
@@ -280,7 +365,10 @@ fn maximum_owned_workload(workload: &Workload) -> TestResult {
     assert!(storage_bytes + size_of::<Store<'_>>() + STACK_SIZE < 1_000_000);
 
     let mut result = Ok(());
-    let updates = allocation_counter::measure(|| result = exercise(&mut store, workload));
+    let updates = allocation_counter::measure(|| {
+        result =
+            exercise(&mut store, workload).and_then(|()| exercise_changes(&mut store, workload));
+    });
     result?;
     assert_eq!(updates.count_total, 0);
     assert_eq!(updates.bytes_max, 0);

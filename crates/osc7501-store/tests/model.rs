@@ -1,6 +1,6 @@
 //! Store observations against an independent model ordered by last update.
 use osc7501_store::{
-    Error, Record, Slot, Store,
+    Change, Error, Record, Slot, Store,
     parser::{self, Action, AppId, Event, Kind, Progress, RecordId, Report, State, parse_body},
 };
 use proptest::{
@@ -8,6 +8,7 @@ use proptest::{
     prelude::*,
     test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
+use std::collections::BTreeMap;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -76,8 +77,12 @@ enum Command<'a> {
 fn commands() -> impl Strategy<Value = Vec<Command<'static>>> {
     let bodies: Vec<&'static [u8]> = vec![
         b"state=idle:app=root",
+        b"state=done:app=other",
         b"state=done",
+        b"state=done:id=a:app=root",
+        b"state=done:id=a:app=inner",
         b"state=error:id=a:msg=T0s=",
+        b"state=error:id=a:msg=T0s",
         b"state=working:id=a:progress=42",
         b"state=blocked:id=a:kind=auth:app=inner",
         b"state=done:id=a/b:title=:msg=",
@@ -169,14 +174,12 @@ impl Model {
     }
 }
 
-fn step(store: &mut Store<'_>, command: Command<'_>) -> Result<Vec<Value>, Error> {
-    let mut removed = Vec::new();
-    let receive = |record: Record<'_>| removed.push(Value::from_record(record));
+fn step(store: &mut Store<'_>, command: Command<'_>) -> Result<(), Error> {
     match command {
-        Command::Report(body) => store.apply(report(body)?, receive)?,
-        Command::Prompt => store.on_prompt(receive),
-        Command::Exit => store.on_process_exit(receive),
-        Command::Reset => store.on_full_reset(receive),
+        Command::Report(body) => store.apply(report(body)?)?,
+        Command::Prompt => store.on_prompt(),
+        Command::Exit => store.on_process_exit(),
+        Command::Reset => store.on_full_reset(),
         Command::Read => {
             for record in store.iter() {
                 assert!(store.get(record.id()).is_some());
@@ -184,7 +187,7 @@ fn step(store: &mut Store<'_>, command: Command<'_>) -> Result<Vec<Value>, Error
             }
         }
     }
-    Ok(sorted(removed))
+    Ok(())
 }
 
 fn check(store: &Store<'_>, model: &Model) -> Result<(), proptest::test_runner::TestCaseError> {
@@ -210,7 +213,7 @@ fn check(store: &Store<'_>, model: &Model) -> Result<(), proptest::test_runner::
 }
 
 #[test]
-fn command_sequences_match_update_order_and_removal_model() -> TestResult {
+fn plain_operations_match_update_order_model() -> TestResult {
     let mut runner = TestRunner::new_with_rng(
         Config {
             cases: 128,
@@ -241,12 +244,112 @@ fn command_sequences_match_update_order_and_removal_model() -> TestResult {
                 .into_iter()
                 .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
             {
-                let expected = model.apply(command)?;
-                prop_assert_eq!(&step(&mut borrowed, command)?, &expected);
+                model.apply(command)?;
+                step(&mut borrowed, command)?;
                 check(&borrowed, &model)?;
                 #[cfg(feature = "alloc")]
                 {
-                    prop_assert_eq!(step(&mut owned, command)?, expected);
+                    step(&mut owned, command)?;
+                    check(&owned, &model)?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct View {
+    record: Value,
+    effective_app: Option<String>,
+}
+
+fn visible(model: &Model) -> BTreeMap<Option<String>, View> {
+    model
+        .oldest_first
+        .iter()
+        .map(|record| {
+            (
+                record.id.clone(),
+                View {
+                    record: record.clone(),
+                    effective_app: model.effective_app(record.id.as_deref()).map(str::to_owned),
+                },
+            )
+        })
+        .collect()
+}
+
+fn changes(store: &mut Store<'_>, command: Command<'_>) -> Result<(Vec<Value>, Vec<View>), Error> {
+    let mut removed = Vec::new();
+    let mut sets = Vec::new();
+    let receive = |change: Change<'_>| match change {
+        Change::Remove(record) => {
+            assert_eq!(sets.len(), 0, "all removals must precede sets");
+            removed.push(Value::from_record(record));
+        }
+        Change::Set {
+            record,
+            effective_app,
+        } => sets.push(View {
+            record: Value::from_record(record),
+            effective_app: effective_app.map(|app| app.as_str().to_owned()),
+        }),
+        _ => {}
+    };
+    match command {
+        Command::Report(body) => store.apply_with_changes(report(body)?, receive)?,
+        Command::Prompt => store.on_prompt_with_changes(receive),
+        Command::Exit => store.on_process_exit_with_changes(receive),
+        Command::Reset => store.on_full_reset_with_changes(receive),
+        Command::Read => {}
+    }
+    sets.sort_by(|left, right| left.record.id.cmp(&right.record.id));
+    Ok((sorted(removed), sets))
+}
+
+#[test]
+fn notifications_match_independent_visible_state_differences() -> TestResult {
+    let mut runner = TestRunner::new_with_rng(
+        Config {
+            cases: 128,
+            failure_persistence: None,
+            ..Config::default()
+        },
+        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+    );
+    runner.run(
+        &(proptest::sample::select(vec![1, 2, 3, 8, 64]), commands()),
+        |(capacity, commands)| {
+            let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
+            let mut borrowed = Store::from_slots(&mut slots)?;
+            #[cfg(feature = "alloc")]
+            let mut owned = Store::new(capacity)?;
+            let mut model = Model {
+                capacity,
+                oldest_first: Vec::new(),
+            };
+            let probes: Vec<_> = (0..=capacity)
+                .map(|id| format!("state=done:id=probe/{id}"))
+                .collect();
+            for command in commands
+                .into_iter()
+                .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
+            {
+                let before = visible(&model);
+                let removed = model.apply(command)?;
+                let sets: Vec<_> = visible(&model)
+                    .into_iter()
+                    .filter(|(id, value)| before.get(id) != Some(value))
+                    .map(|(_, value)| value)
+                    .collect();
+                let expected = (removed, sets);
+                prop_assert_eq!(&changes(&mut borrowed, command)?, &expected);
+                check(&borrowed, &model)?;
+                #[cfg(feature = "alloc")]
+                {
+                    prop_assert_eq!(&changes(&mut owned, command)?, &expected);
                     check(&owned, &model)?;
                 }
             }
@@ -262,13 +365,10 @@ fn unchanged_updates_and_reordered_ids_change_future_eviction() -> TestResult {
         let mut slots = [const { Slot::EMPTY }; 2];
         let mut store = Store::from_slots(&mut slots)?;
         for id in &history {
-            assert_eq!(
-                step(
-                    &mut store,
-                    Command::Report(format!("state=done:id={id}").as_bytes())
-                )?,
-                [] as [Value; 0]
-            );
+            step(
+                &mut store,
+                Command::Report(format!("state=done:id={id}").as_bytes()),
+            )?;
         }
         let current = sorted(store.iter().map(Value::from_record).collect());
         assert_eq!(
@@ -278,7 +378,7 @@ fn unchanged_updates_and_reordered_ids_change_future_eviction() -> TestResult {
                 .collect::<Vec<_>>(),
             ["a", "b"]
         );
-        let removed = step(&mut store, Command::Report(b"state=done:id=c"))?;
+        let (removed, _) = changes(&mut store, Command::Report(b"state=done:id=c"))?;
         assert_eq!(removed.len(), 1);
         assert_eq!(
             removed[0].id.as_deref(),

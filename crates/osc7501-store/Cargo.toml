@@ -27,3 +27,7 @@ workspace = true
 allocation-counter = "0.8.1"
 base64 = "0.23.1"
 proptest.workspace = true
+
+[[example]]
+name = "observe"
+required-features = ["alloc"]

@@ -4,8 +4,10 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod change;
 mod record;
 
+pub use change::Change;
 /// Parse and validate reports before applying them to the store.
 pub use osc7501_parser as parser;
 pub use record::Record;
@@ -73,7 +75,7 @@ impl DerefMut for Storage<'_> {
 /// Use [`Store::from_slots`] to supply storage without an allocator.
 /// With the `alloc` feature, `Store::new(capacity)` owns heap storage instead.
 /// Updates replace every explicit field. Lookup does not affect eviction order.
-/// Removal callbacks borrow the old record before its slot is reused or cleared.
+/// Change callbacks borrow records only for the duration of the call.
 /// Records belong to the terminal, so screen switches require no store action.
 pub struct Store<'a> {
     slots: Storage<'a>,
@@ -171,18 +173,23 @@ impl<'a> Store<'a> {
     /// Existing-record updates never evict another record.
     /// Every set refreshes the record's update order, even when all fields match.
     ///
-    /// Calls `on_remove` for each cleared or evicted record, before removal.
-    /// Ordinary replacement does not call it. Use `|_| {}` to ignore removals.
-    /// This method does not allocate.
+    /// Does not allocate or collect change notifications.
+    /// Use [`apply_with_changes`](Self::apply_with_changes) to observe removals,
+    /// replacements, and inherited-app changes.
     ///
     /// # Errors
     /// Returns [`Error::Parser`] if copying or decoding a field fails. All fields
-    /// are prepared before any removal, callback, or slot mutation.
-    pub fn apply(
+    /// are prepared before any slot mutation.
+    pub fn apply(&mut self, report: Report<'_>) -> Result<(), Error> {
+        self.apply_inner(report, |_| {}, false).map(|_| ())
+    }
+
+    fn apply_inner(
         &mut self,
         report: Report<'_>,
         mut on_remove: impl FnMut(Record<'_>),
-    ) -> Result<(), Error> {
+        track_changes: bool,
+    ) -> Result<Option<usize>, Error> {
         let id = report.id().map(RecordId::as_str);
         let Action::Set(state) = report.action() else {
             self.remove_matching(
@@ -198,7 +205,7 @@ impl<'a> Store<'a> {
                 },
                 &mut on_remove,
             );
-            return Ok(());
+            return Ok(None);
         };
 
         let prepared = StoredRecord::prepare(state, report)?;
@@ -216,6 +223,11 @@ impl<'a> Store<'a> {
                     .min_by_key(|(_, slot)| slot.rank)
                     .map_or(0, |(index, _)| index)
             });
+        let changed = track_changes
+            && self.slots[index]
+                .record
+                .as_ref()
+                .is_none_or(|record| !record.same_fields(&prepared));
         if let Some(record) = self.slots[index].record.as_ref() {
             if existing.is_none() {
                 on_remove(record.view());
@@ -225,27 +237,29 @@ impl<'a> Store<'a> {
         self.slots[index].record = Some(prepared);
         self.slots[index].rank = self.length;
         self.length += 1;
-        Ok(())
+        Ok(changed.then_some(index))
     }
 
     /// Removes working and blocked records when a new shell prompt begins.
-    /// Retains idle, done, and error records. Calls `on_remove` before each removal.
-    pub fn on_prompt(&mut self, mut on_remove: impl FnMut(Record<'_>)) {
-        self.remove_matching(
-            |record| matches!(record.state(), State::Working | State::Blocked),
-            &mut on_remove,
-        );
+    /// Retains idle, done, and error records. Use
+    /// [`on_prompt_with_changes`](Self::on_prompt_with_changes) for notifications.
+    pub fn on_prompt(&mut self) {
+        self.remove_active(&mut |_| {});
     }
 
     /// Applies prompt cleanup when the process attached to this terminal exits.
     /// This event is not inferred from record ids or child process ids.
-    pub fn on_process_exit(&mut self, on_remove: impl FnMut(Record<'_>)) {
-        self.on_prompt(on_remove);
+    /// Use [`on_process_exit_with_changes`](Self::on_process_exit_with_changes)
+    /// for notifications.
+    pub fn on_process_exit(&mut self) {
+        self.on_prompt();
     }
 
     /// Removes all records on a full terminal reset (RIS).
-    pub fn on_full_reset(&mut self, mut on_remove: impl FnMut(Record<'_>)) {
-        self.remove_matching(|_| true, &mut on_remove);
+    /// Use [`on_full_reset_with_changes`](Self::on_full_reset_with_changes)
+    /// for notifications.
+    pub fn on_full_reset(&mut self) {
+        self.remove_matching(|_| true, &mut |_| {});
     }
 
     fn find(&self, id: Option<&str>) -> Option<&StoredRecord> {
@@ -253,6 +267,13 @@ impl<'a> Store<'a> {
             .iter()
             .filter_map(|slot| slot.record.as_ref())
             .find(|record| record.matches_id(id))
+    }
+
+    fn remove_active(&mut self, on_remove: &mut impl FnMut(Record<'_>)) {
+        self.remove_matching(
+            |record| matches!(record.state(), State::Working | State::Blocked),
+            on_remove,
+        );
     }
 
     fn remove_matching(
