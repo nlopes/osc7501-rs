@@ -7,6 +7,16 @@ These Rust libraries implement the
 [OSC 7501 Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status),
 revision 0.4. Terminals that support it decide how to display that status.
 
+> [!IMPORTANT]
+> This was all built using Codex with a mix of the Sol 6.1 and Astra models in xhigh.
+>
+> The motivation to build these libraries was 3-fold:
+> 1. have a pure rust implementation
+> 2. build an experiment into [`acdc`](https://github.com/nlopes/acdc)'s html and terminal converters
+> 3. learn osc7501 on the way
+>
+> I've steered, read the code, accepted some "fine" code, trashed some "horrible" code, and also decided to build an extra crate [`osc7501-store`](./crates/osc7501-store) which might end up not being very useful.
+
 ## Send a status
 
 Add the producer to your `Cargo.toml`:
