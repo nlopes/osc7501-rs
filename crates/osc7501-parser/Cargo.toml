@@ -8,6 +8,7 @@ repository.workspace = true
 publish.workspace = true
 license.workspace = true
 readme = "README.md"
+exclude = ["/tests/**", "/examples/benchmark.rs"]
 
 [dependencies]
 thiserror.workspace = true
