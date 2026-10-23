@@ -1,0 +1,10 @@
+[profiles.development]
+test_cases = 256
+derandomize = true
+database = "disabled"
+
+[profiles.ci]
+test_cases = 512
+
+[profiles.extended]
+test_cases = 10000

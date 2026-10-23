@@ -114,16 +114,8 @@ The parser and store also work as separate dependencies without `std`.
 
 ## Try it
 
-From a repository checkout, run the interactive release playground:
-
-```sh
-cargo run -p osc7501-rs --example tui
-```
-
-Press `s` to start and `q` to quit. The screen shows task progress, reports,
-and the builder calls that produce them. Use a terminal of at least 80 columns
-and 24 rows; protocol support is optional.
-
-See the [repository README](https://github.com/nlopes/osc7501-rs#try-the-examples)
-for the host and text demos, or the [API documentation](https://docs.rs/osc7501-rs)
-for the full interface.
+The [release playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/tui.rs)
+shows task progress, reports, and the builder calls that produce them.
+See the [development guide](https://github.com/nlopes/osc7501-rs/blob/main/DEVELOPMENT.md)
+for running the examples and contributing, or the
+[API documentation](https://docs.rs/osc7501-rs) for the full interface.

@@ -20,7 +20,7 @@ workspace = true
 allocation-counter = "0.8.1"
 anyhow = "1.0.104"
 base64 = "0.23.1"
-proptest.workspace = true
+hegeltest.workspace = true
 vte = { version = "0.15.0", default-features = false }
 
 [[example]]

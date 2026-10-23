@@ -1,10 +1,6 @@
 //! Chunk composition and resumption after consumer failures.
+use hegel::{Generator as _, PrintableGenerator, TestCase, generators as gs};
 use osc7501_parser::{Decoder, Error, Event, Limit, MAX_SEQUENCE, stream::Error as StreamError};
-use proptest::{
-    collection::vec,
-    prelude::*,
-    test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
-};
 use std::{
     convert::Infallible,
     error::Error as _,
@@ -21,22 +17,25 @@ fn observe(event: Result<Event<'_>, Error>) -> Observation {
     event.map(|event| format!("{event:?}"))
 }
 
-fn stream() -> impl Strategy<Value = Vec<u8>> {
-    let frame = prop_oneof![
-        Just(b"\x1b]7501;state=done:msg=T0s=\x1b\\".to_vec()),
-        Just(b"\x1b]7501;state=blocked:id=a/b:kind=auth\x07".to_vec()),
-        Just(b"\x1b]7501;?:states=done,future,working:kinds=\x07".to_vec()),
-        Just(b"\x1b]7501;?\x1b\\".to_vec()),
-        Just(b"\x1b]7501;state=future\x07".to_vec()),
-        Just(b"\x1b]7501;state=done:msg=AA==\x07".to_vec()),
-        Just(b"\x1b]0;other osc\x1b\\".to_vec()),
-        Just(b"\x1b]7501;state=".to_vec()),
-        (4080..4110_usize).prop_map(|size| {
-            format!("\x1b]7501;state=done:future={}\x1b\\", "x".repeat(size)).into_bytes()
-        }),
-        vec(any::<u8>(), 0..80),
+fn stream() -> impl PrintableGenerator<Vec<u8>> {
+    let frame = hegel::one_of![
+        gs::just(b"\x1b]7501;state=done:msg=T0s=\x1b\\".to_vec()),
+        gs::just(b"\x1b]7501;state=blocked:id=a/b:kind=auth\x07".to_vec()),
+        gs::just(b"\x1b]7501;?:states=done,future,working:kinds=\x07".to_vec()),
+        gs::just(b"\x1b]7501;?\x1b\\".to_vec()),
+        gs::just(b"\x1b]7501;state=future\x07".to_vec()),
+        gs::just(b"\x1b]7501;state=done:msg=AA==\x07".to_vec()),
+        gs::just(b"\x1b]0;other osc\x1b\\".to_vec()),
+        gs::just(b"\x1b]7501;state=".to_vec()),
+        gs::integers::<usize>()
+            .min_value(4080)
+            .max_value(4109)
+            .map(|size| {
+                format!("\x1b]7501;state=done:future={}\x1b\\", "x".repeat(size)).into_bytes()
+            }),
+        gs::binary().max_size(79),
     ];
-    vec(frame, 0..12).prop_map(|parts| parts.concat())
+    gs::vecs(frame).max_size(11).map(|parts| parts.concat())
 }
 
 fn trace(prefix: &[u8], bytes: &[u8], cuts: &[usize], stop: bool) -> Vec<Observation> {
@@ -69,29 +68,19 @@ fn trace(prefix: &[u8], bytes: &[u8], cuts: &[usize], stop: bool) -> Vec<Observa
     events
 }
 
-#[test]
-fn generated_streams_preserve_events_errors_and_continuation_across_partitions() -> TestResult {
-    let strategy = (stream(), stream(), vec(any::<u16>(), 0..40));
-    let mut runner = TestRunner::new_with_rng(
-        Config {
-            cases: 256,
-            failure_persistence: None,
-            ..Config::default()
-        },
-        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
-    );
-    runner.run(&strategy, |(prefix, bytes, cuts)| {
-        let mut cuts: Vec<_> = cuts
-            .into_iter()
-            .map(|cut| usize::from(cut) % (bytes.len() + 1))
-            .collect();
-        cuts.sort_unstable();
-        let expected = trace(&prefix, &bytes, &[], false);
-        prop_assert_eq!(&trace(&prefix, &bytes, &cuts, false), &expected);
-        prop_assert_eq!(trace(&prefix, &bytes, &cuts, true), expected);
-        Ok(())
-    })?;
-    Ok(())
+#[hegel::test]
+fn generated_streams_preserve_events_errors_and_continuation_across_partitions(tc: TestCase) {
+    let prefix = tc.draw(stream());
+    let bytes = tc.draw(stream());
+    let cuts = tc.draw(gs::vecs(gs::integers::<u16>()).max_size(39));
+    let mut cuts: Vec<_> = cuts
+        .into_iter()
+        .map(|cut| usize::from(cut) % (bytes.len() + 1))
+        .collect();
+    cuts.sort_unstable();
+    let expected = trace(&prefix, &bytes, &[], false);
+    assert_eq!(&trace(&prefix, &bytes, &cuts, false), &expected);
+    assert_eq!(trace(&prefix, &bytes, &cuts, true), expected);
 }
 
 #[test]

@@ -162,11 +162,7 @@ the view from `iter()` and `effective_app()`.
 The runnable [observer example](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501-store/examples/observe.rs)
 routes reports and lifecycle events through one handler. It copies selected
 fields into an application-owned view, which remains usable after the store is
-dropped:
-
-```sh
-cargo run -p osc7501-store --example observe --features alloc
-```
+dropped.
 
 Use `apply(report)`, `on_prompt()`, `on_process_exit()`, and `on_full_reset()`
 when you do not need notifications; they avoid change detection.
@@ -193,24 +189,9 @@ and transport. Treat decoded text as plain, untrusted text.
 ## Run a terminal host example
 
 From a repository checkout, run the
-[host playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs):
+[host playground](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501/examples/host.rs)
+to see reports parsed from a fragmented stream and stored for display.
 
-```sh
-cargo run -p osc7501-rs --example host --features store-alloc
-```
-
-It simulates a release, sends reports through a fragmented stream, and shows
-the records the host keeps. Try this:
-
-1. Press `s` to start. Select a task with the arrow keys or `Tab`;
-   `f` fails it and `r` retries.
-2. Press `i` to switch between decoded fields and the store API.
-3. Finish the release, then press `X` to simulate process exit.
-   Completed and failed results remain visible. Press `R` to clear everything.
-4. Press `q` to quit. The on-screen help lists the other controls.
-
-Use a terminal of at least 80 columns and 24 rows. Protocol support is optional.
-Unset `NO_COLOR` for colors. Piped output is plain; add `-- --plain` to request
-a text trace in a terminal.
-
+See the [development guide](https://github.com/nlopes/osc7501-rs/blob/main/DEVELOPMENT.md)
+for running the host and observer examples, and for contributor checks.
 See the [API documentation](https://docs.rs/osc7501-store) for the full interface.

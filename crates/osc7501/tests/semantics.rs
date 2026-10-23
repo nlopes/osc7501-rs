@@ -1,13 +1,8 @@
 //! Producer round trips preserve field meaning rather than input spelling.
+use hegel::{TestCase, generators as gs};
 use osc7501::{
     AppId, Kind, Progress, RecordId, State, Status,
     parser::{self, Action, EncodedText, Event, parse_sequence},
-};
-use proptest::{
-    option,
-    prelude::*,
-    sample::select,
-    test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -20,81 +15,79 @@ fn decode(text: Option<EncodedText<'_>>) -> Result<Option<String>, parser::Error
     .transpose()
 }
 
-#[test]
-fn generated_statuses_preserve_all_fields_after_encoding() -> TestResult {
-    let strategy = (
-        select(vec![
-            Action::Clear,
-            Action::Set(State::Idle),
-            Action::Set(State::Working),
-            Action::Set(State::Blocked),
-            Action::Set(State::Done),
-            Action::Set(State::Error),
-        ]),
-        option::of(select(vec!["a", "a/b", "release/test"])),
-        option::of(select(vec!["cargo", "my-app", "test_1"])),
-        option::of("[ -~é🦀]{0,32}"),
-        option::of("[ -~é🦀]{0,64}"),
-        option::of(select(vec![Kind::Auth, Kind::Permission, Kind::Question])),
-        option::of(0..=100_u8),
-    );
-    let mut runner = TestRunner::new_with_rng(
-        Config {
-            cases: 256,
-            failure_persistence: None,
-            ..Config::default()
-        },
-        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
-    );
-    runner.run(
-        &strategy,
-        |(action, id, app, title, message, kind, progress)| {
-            let mut status = match action {
-                Action::Set(state) => Status::new(state),
-                Action::Clear => Status::clear(),
-            };
-            let id = id.map(RecordId::new).transpose()?;
-            let app = app.map(AppId::new).transpose()?;
-            let kind = kind.filter(|_| action == Action::Set(State::Blocked));
-            let progress = progress
-                .filter(|_| matches!(action, Action::Set(State::Working | State::Blocked)))
-                .map(Progress::new)
-                .transpose()?;
-            if let Some(id) = id {
-                status = status.id(id);
-            }
-            if let Some(app) = app {
-                status = status.app(app);
-            }
-            if let Some(title) = &title {
-                status = status.title(title);
-            }
-            if let Some(message) = &message {
-                status = status.message(message);
-            }
-            if let Some(kind) = kind {
-                status = status.kind(kind);
-            }
-            if let Some(progress) = progress {
-                status = status.progress(progress);
-            }
-            let mut bytes = Vec::new();
-            status.write_to(&mut bytes)?;
-            let Some(Event::Report(report)) = parse_sequence(&bytes)? else {
-                return Err(proptest::test_runner::TestCaseError::fail(
-                    "expected report",
-                ));
-            };
-            prop_assert_eq!(report.action(), action);
-            prop_assert_eq!(report.id(), id);
-            prop_assert_eq!(report.app(), app);
-            prop_assert_eq!(report.kind(), kind);
-            prop_assert_eq!(report.progress(), progress);
-            prop_assert_eq!(decode(report.title())?, title);
-            prop_assert_eq!(decode(report.message())?, message);
-            Ok(())
-        },
-    )?;
+#[hegel::test]
+fn generated_statuses_preserve_all_fields_after_encoding(tc: TestCase) {
+    let result = check_generated_status(&tc);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[hegel::test_helper]
+fn check_generated_status(tc: &TestCase) -> TestResult {
+    let action = tc.draw(gs::sampled_from(&[
+        Action::Clear,
+        Action::Set(State::Idle),
+        Action::Set(State::Working),
+        Action::Set(State::Blocked),
+        Action::Set(State::Done),
+        Action::Set(State::Error),
+    ]));
+    let id = tc.draw(gs::optional(gs::sampled_from(&[
+        "a",
+        "a/b",
+        "release/test",
+    ])));
+    let app = tc.draw(gs::optional(gs::sampled_from(&[
+        "cargo", "my-app", "test_1",
+    ])));
+    let title = tc.draw(gs::optional(gs::from_regex("[ -~é🦀]{0,32}")));
+    let message = tc.draw(gs::optional(gs::from_regex("[ -~é🦀]{0,64}")));
+    let kind = tc.draw(gs::optional(gs::sampled_from(&[
+        Kind::Auth,
+        Kind::Permission,
+        Kind::Question,
+    ])));
+    let progress = tc.draw(gs::optional(gs::integers::<u8>().max_value(100)));
+    let mut status = match action {
+        Action::Set(state) => Status::new(state),
+        Action::Clear => Status::clear(),
+    };
+    let id = id.map(RecordId::new).transpose()?;
+    let app = app.map(AppId::new).transpose()?;
+    let kind = kind.filter(|_| action == Action::Set(State::Blocked));
+    let progress = progress
+        .filter(|_| matches!(action, Action::Set(State::Working | State::Blocked)))
+        .map(Progress::new)
+        .transpose()?;
+    if let Some(id) = id {
+        status = status.id(id);
+    }
+    if let Some(app) = app {
+        status = status.app(app);
+    }
+    if let Some(title) = &title {
+        status = status.title(title);
+    }
+    if let Some(message) = &message {
+        status = status.message(message);
+    }
+    if let Some(kind) = kind {
+        status = status.kind(kind);
+    }
+    if let Some(progress) = progress {
+        status = status.progress(progress);
+    }
+    let mut bytes = Vec::new();
+    status.write_to(&mut bytes)?;
+    let Some(Event::Report(report)) = parse_sequence(&bytes)? else {
+        return Err("expected report".into());
+    };
+    assert_eq!(report.action(), action);
+    assert_eq!(report.id(), id);
+    assert_eq!(report.app(), app);
+    assert_eq!(report.kind(), kind);
+    assert_eq!(report.progress(), progress);
+    assert_eq!(decode(report.title())?, title);
+    assert_eq!(decode(report.message())?, message);
     Ok(())
 }
 

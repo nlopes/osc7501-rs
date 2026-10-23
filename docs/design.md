@@ -187,8 +187,8 @@ and command history. Removal order within one cleanup is not specified.
 Generated tests use fixed random seeds and shrink failing cases. Streaming
 tests vary input and partitions, including stops and resumption. Store tests
 compare both storage forms with a model ordered by last update, then insert new
-records to expose differences in future eviction. These tests need `proptest`
-only during development; it adds no runtime dependency.
+records to expose differences in future eviction. Hegel and its static engine
+are development dependencies.
 
 ## Preserve useful errors
 

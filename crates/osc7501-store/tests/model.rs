@@ -1,12 +1,9 @@
 //! Store observations against an independent model ordered by last update.
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use hegel::{TestCase, generators as gs};
 use osc7501_store::{
     Change, Error, Record, Slot, Store,
     parser::{self, Action, AppId, Event, Kind, Progress, RecordId, Report, State, parse_body},
-};
-use proptest::{
-    collection::vec,
-    prelude::*,
-    test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
 use std::collections::BTreeMap;
 
@@ -74,7 +71,8 @@ enum Command<'a> {
     Read,
 }
 
-fn commands() -> impl Strategy<Value = Vec<Command<'static>>> {
+#[hegel::test_helper]
+fn commands(tc: &TestCase) -> Vec<Command<'static>> {
     let bodies: Vec<&'static [u8]> = vec![
         b"state=idle:app=root",
         b"state=done:app=other",
@@ -93,16 +91,17 @@ fn commands() -> impl Strategy<Value = Vec<Command<'static>>> {
         b"state=clear:id=a/b",
         b"state=clear",
     ];
-    vec(
-        prop_oneof![
-            8 => proptest::sample::select(bodies).prop_map(Command::Report),
-            1 => Just(Command::Prompt),
-            1 => Just(Command::Exit),
-            1 => Just(Command::Reset),
-            2 => Just(Command::Read),
-        ],
-        0..80,
-    )
+    let operations = tc.draw(gs::vecs(gs::integers::<u8>().max_value(12)).max_size(79));
+    operations
+        .into_iter()
+        .map(|operation| match operation {
+            8 => Command::Prompt,
+            9 => Command::Exit,
+            10 => Command::Reset,
+            11 | 12 => Command::Read,
+            _ => Command::Report(tc.draw(gs::sampled_from(&bodies))),
+        })
+        .collect()
 }
 
 struct Model {
@@ -190,9 +189,9 @@ fn step(store: &mut Store<'_>, command: Command<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-fn check(store: &Store<'_>, model: &Model) -> Result<(), proptest::test_runner::TestCaseError> {
-    prop_assert_eq!(store.len(), model.oldest_first.len());
-    prop_assert_eq!(
+fn check(store: &Store<'_>, model: &Model) -> TestResult {
+    assert_eq!(store.len(), model.oldest_first.len());
+    assert_eq!(
         sorted(store.iter().map(Value::from_record).collect()),
         sorted(model.oldest_first.clone())
     );
@@ -207,55 +206,46 @@ fn check(store: &Store<'_>, model: &Model) -> Result<(), proptest::test_runner::
         let actual = store
             .effective_app(id.map(RecordId::new).transpose()?)
             .map(AppId::as_str);
-        prop_assert_eq!(actual, model.effective_app(id));
+        assert_eq!(actual, model.effective_app(id));
     }
     Ok(())
 }
 
-#[test]
-fn plain_operations_match_update_order_model() -> TestResult {
-    let mut runner = TestRunner::new_with_rng(
-        Config {
-            cases: 128,
-            failure_persistence: None,
-            ..Config::default()
-        },
-        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
-    );
-    runner.run(
-        &(
-            proptest::sample::select(vec![1, 2, 3, 8, 64, 256]),
-            commands(),
-        ),
-        |(capacity, commands)| {
-            let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
-            let mut borrowed = Store::from_slots(&mut slots)?;
-            #[cfg(feature = "alloc")]
-            let mut owned = Store::new(capacity)?;
-            let mut model = Model {
-                capacity,
-                oldest_first: Vec::new(),
-            };
-            // New ids expose any update-order difference hidden by the current records.
-            let probes: Vec<_> = (0..=capacity)
-                .map(|id| format!("state=done:id=probe/{id}"))
-                .collect();
-            for command in commands
-                .into_iter()
-                .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
-            {
-                model.apply(command)?;
-                step(&mut borrowed, command)?;
-                check(&borrowed, &model)?;
-                #[cfg(feature = "alloc")]
-                {
-                    step(&mut owned, command)?;
-                    check(&owned, &model)?;
-                }
-            }
-            Ok(())
-        },
-    )?;
+#[hegel::test]
+fn plain_operations_match_update_order_model(tc: TestCase) {
+    let capacity = tc.draw(gs::sampled_from(&[1, 2, 3, 8, 64, 256]));
+    let commands = commands(&tc);
+    let result = check_plain_operations(capacity, &commands);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+fn check_plain_operations(capacity: usize, commands: &[Command<'_>]) -> TestResult {
+    let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
+    let mut borrowed = Store::from_slots(&mut slots)?;
+    #[cfg(feature = "alloc")]
+    let mut owned = Store::new(capacity)?;
+    let mut model = Model {
+        capacity,
+        oldest_first: Vec::new(),
+    };
+    // New ids expose any update-order difference hidden by the current records.
+    let probes: Vec<_> = (0..=capacity)
+        .map(|id| format!("state=done:id=probe/{id}"))
+        .collect();
+    for command in commands
+        .iter()
+        .copied()
+        .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
+    {
+        model.apply(command)?;
+        step(&mut borrowed, command)?;
+        check(&borrowed, &model)?;
+        #[cfg(feature = "alloc")]
+        {
+            step(&mut owned, command)?;
+            check(&owned, &model)?;
+        }
+    }
     Ok(())
 }
 
@@ -309,53 +299,47 @@ fn changes(store: &mut Store<'_>, command: Command<'_>) -> Result<(Vec<Value>, V
     Ok((sorted(removed), sets))
 }
 
-#[test]
-fn notifications_match_independent_visible_state_differences() -> TestResult {
-    let mut runner = TestRunner::new_with_rng(
-        Config {
-            cases: 128,
-            failure_persistence: None,
-            ..Config::default()
-        },
-        TestRng::deterministic_rng(RngAlgorithm::ChaCha),
-    );
-    runner.run(
-        &(proptest::sample::select(vec![1, 2, 3, 8, 64]), commands()),
-        |(capacity, commands)| {
-            let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
-            let mut borrowed = Store::from_slots(&mut slots)?;
-            #[cfg(feature = "alloc")]
-            let mut owned = Store::new(capacity)?;
-            let mut model = Model {
-                capacity,
-                oldest_first: Vec::new(),
-            };
-            let probes: Vec<_> = (0..=capacity)
-                .map(|id| format!("state=done:id=probe/{id}"))
-                .collect();
-            for command in commands
-                .into_iter()
-                .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
-            {
-                let before = visible(&model);
-                let removed = model.apply(command)?;
-                let sets: Vec<_> = visible(&model)
-                    .into_iter()
-                    .filter(|(id, value)| before.get(id) != Some(value))
-                    .map(|(_, value)| value)
-                    .collect();
-                let expected = (removed, sets);
-                prop_assert_eq!(&changes(&mut borrowed, command)?, &expected);
-                check(&borrowed, &model)?;
-                #[cfg(feature = "alloc")]
-                {
-                    prop_assert_eq!(&changes(&mut owned, command)?, &expected);
-                    check(&owned, &model)?;
-                }
-            }
-            Ok(())
-        },
-    )?;
+#[hegel::test]
+fn notifications_match_independent_visible_state_differences(tc: TestCase) {
+    let capacity = tc.draw(gs::sampled_from(&[1, 2, 3, 8, 64]));
+    let commands = commands(&tc);
+    let result = check_notifications(capacity, &commands);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+fn check_notifications(capacity: usize, commands: &[Command<'_>]) -> TestResult {
+    let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
+    let mut borrowed = Store::from_slots(&mut slots)?;
+    #[cfg(feature = "alloc")]
+    let mut owned = Store::new(capacity)?;
+    let mut model = Model {
+        capacity,
+        oldest_first: Vec::new(),
+    };
+    let probes: Vec<_> = (0..=capacity)
+        .map(|id| format!("state=done:id=probe/{id}"))
+        .collect();
+    for command in commands
+        .iter()
+        .copied()
+        .chain(probes.iter().map(|body| Command::Report(body.as_bytes())))
+    {
+        let before = visible(&model);
+        let removed = model.apply(command)?;
+        let sets: Vec<_> = visible(&model)
+            .into_iter()
+            .filter(|(id, value)| before.get(id) != Some(value))
+            .map(|(_, value)| value)
+            .collect();
+        let expected = (removed, sets);
+        assert_eq!(&changes(&mut borrowed, command)?, &expected);
+        check(&borrowed, &model)?;
+        #[cfg(feature = "alloc")]
+        {
+            assert_eq!(&changes(&mut owned, command)?, &expected);
+            check(&owned, &model)?;
+        }
+    }
     Ok(())
 }
 
@@ -388,6 +372,95 @@ fn unchanged_updates_and_reordered_ids_change_future_eviction() -> TestResult {
                 Some("b")
             }
         );
+    }
+    Ok(())
+}
+
+#[hegel::test]
+fn generated_fields_and_lifecycle_histories_match_the_model(tc: TestCase) {
+    let capacity = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+    let history = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::integers::<u8>().max_value(11),
+            gs::sampled_from(&["idle", "working", "blocked", "done", "error", "clear"]),
+            gs::optional(gs::sampled_from(&["a", "a/b", "a/b/c", "ab", "b"])),
+            gs::optional(
+                gs::text()
+                    .alphabet("abcABC012._+-")
+                    .min_size(1)
+                    .max_size(32)
+            ),
+            gs::optional(gs::text().alphabet(" a:;=é€🦀").max_size(32)),
+            gs::optional(gs::integers::<u8>().max_value(100)),
+            gs::optional(gs::sampled_from(&["auth", "permission", "question"])),
+        ))
+        .max_size(60),
+    );
+    let mut commands = Vec::new();
+    for (operation, state, id, app, text, progress, kind) in history {
+        let mut fields = vec![format!("state={state}")];
+        if let Some(id) = id {
+            fields.push(format!("id={id}"));
+        }
+        if let Some(app) = app {
+            fields.push(format!("app={app}"));
+        }
+        if let Some(text) = text {
+            fields.push(format!(
+                "title={}:msg={}",
+                STANDARD.encode(&text),
+                STANDARD.encode(&text)
+            ));
+        }
+        if let Some(progress) = progress {
+            fields.push(format!("progress={progress}"));
+        }
+        if let Some(kind) = kind {
+            fields.push(format!("kind={kind}"));
+        }
+        commands.push((operation, fields.join(":")));
+    }
+    commands.extend((0..=capacity).map(|id| (0, format!("state=done:id=probe/{id}"))));
+    let result = check_generated_history(capacity, &commands);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+fn check_generated_history(capacity: usize, commands: &[(u8, String)]) -> TestResult {
+    let mut slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
+    let mut plain = Store::from_slots(&mut slots)?;
+    let mut observed_slots: Vec<_> = (0..capacity).map(|_| Slot::EMPTY).collect();
+    let mut observed = Store::from_slots(&mut observed_slots)?;
+    #[cfg(feature = "alloc")]
+    let mut owned = Store::new(capacity)?;
+    let mut model = Model {
+        capacity,
+        oldest_first: Vec::new(),
+    };
+    for (operation, body) in commands {
+        let command = match operation {
+            8 => Command::Prompt,
+            9 => Command::Exit,
+            10 => Command::Reset,
+            11 => Command::Read,
+            _ => Command::Report(body.as_bytes()),
+        };
+        let before = visible(&model);
+        let removed = model.apply(command)?;
+        let sets: Vec<_> = visible(&model)
+            .into_iter()
+            .filter(|(id, value)| before.get(id) != Some(value))
+            .map(|(_, value)| value)
+            .collect();
+        let expected = (removed, sets);
+        step(&mut plain, command)?;
+        check(&plain, &model)?;
+        assert_eq!(changes(&mut observed, command)?, expected);
+        check(&observed, &model)?;
+        #[cfg(feature = "alloc")]
+        {
+            assert_eq!(changes(&mut owned, command)?, expected);
+            check(&owned, &model)?;
+        }
     }
     Ok(())
 }

@@ -87,35 +87,18 @@ terminal cleanup, use [osc7501-store](https://docs.rs/osc7501-store).
 
 ## Observe a terminal stream
 
-The supported
-[terminal-stream example](https://github.com/nlopes/osc7501-rs/tree/main/crates/osc7501-parser/examples/terminal_stream.rs)
-forwards stdin unchanged to stdout and reports OSC 7501 observations on stderr:
-
-```sh
-cargo run -p osc7501-parser --example terminal_stream --quiet < recording.bin > forwarded.bin
-```
+The [terminal-stream example](https://github.com/nlopes/osc7501-rs/blob/main/crates/osc7501-parser/examples/terminal_stream.rs)
+forwards stdin unchanged to stdout and reports OSC 7501 observations on stderr.
 
 Use this example when you need VT cancellation, original frame bytes, or full
 reset notifications. `Decoder` is an OSC scanner; it does not track the complete
 VT parser state or retain unrelated output. If your host already has a terminal
 parser, use its dispatcher and pass the original OSC body to `parse_body`.
 
-The example uses `vte` 0.15 with default features disabled and bounded storage.
-It recognizes literal ESC-`]` frames ending in BEL or ESC-backslash. Cancelled,
-oversized, and unfinished prefixes pass through without becoming reports.
-Unknown OSCs, ignored reports, rejected reports, and ordinary output keep their
-original bytes. It follows `vte`'s UTF-8 terminal model; it does not decode tmux
-passthrough or eight-bit OSC/ST framing.
+Unknown OSCs, ignored or rejected reports, and ordinary output keep their
+original bytes. The example handles UTF-8 terminal input and seven-bit OSC/ST
+framing. It does not decode tmux passthrough or eight-bit OSC/ST framing.
 
-`Adapter::try_feed` delivers borrowed segments in order. A callback can parse,
-copy, forward, or replace each segment. After a callback stops, resume on the
-same adapter at `error.consumed()`. A retained prefix can be delivered before
-any new byte is consumed, so this offset can be zero. The delivered segment
-stays consumed. Call `finish` at EOF to flush pending bytes and reset VT state
-before an independent stream. The filter aborts on I/O errors; a failed write
-can leave partial output and is not retried as a whole segment.
-
-The adapter remains example code. `vte` is a development dependency; the parser
-library keeps its existing dependencies and allocation-free `no_std` API.
-
+See the [development guide](https://github.com/nlopes/osc7501-rs/blob/main/DEVELOPMENT.md)
+for running and adapting the example, and for contributor checks.
 See the [API documentation](https://docs.rs/osc7501-parser) for the full interface.

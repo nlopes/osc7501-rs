@@ -10,7 +10,7 @@ publish = ["crates-io"]
 license = "MIT"
 
 [workspace.dependencies]
-proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+hegeltest = { version = "0.50.3", features = ["static-engine"] }
 thiserror = { version = "2.0.21", default-features = false }
 
 [workspace.lints.rust]

@@ -21,7 +21,7 @@ links. Update dependency version requirements in affected crates and keep
 ## Check the release commit
 
 Review and commit the release changes, then wait for CI to pass on that exact commit.
-Follow the [development workflow](../README.md#working-on-the-code) locally.
+Follow the [development guide](../DEVELOPMENT.md#check-a-change) locally.
 [CI](../.github/workflows/ci.yml) defines the full OS, Rust, and feature matrix.
 The embedded-target build checks `no_std` compilation; native tests check runtime
 behavior.

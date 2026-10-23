@@ -132,4 +132,4 @@ cargo nextest run --release -p osc7501-store --test resources --features alloc -
 ```
 
 For the full regression suite and documentation examples, follow the
-[development workflow](../README.md#working-on-the-code).
+[development guide](../DEVELOPMENT.md#run-the-tests).

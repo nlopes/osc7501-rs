@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 
+use hegel::{TestCase, generators as gs};
 use osc7501_parser::{Event, MAX_SEQUENCE, parse_sequence};
-use proptest::prelude::*;
 
 use super::adapter::{Adapter, Kind, Segment};
 
@@ -370,28 +370,22 @@ fn filter_propagates_partial_write_failure() {
     assert_eq!(output, REPORT[..3]);
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 128,
-        rng_seed: proptest::test_runner::RngSeed::Fixed(7501),
-        ..ProptestConfig::default()
-    })]
-
-    #[test]
-    fn arbitrary_bytes_survive_chunking_and_pauses(
-        parts in prop::collection::vec(prop_oneof![
-            prop::collection::vec(any::<u8>(), 0..128),
-            Just(REPORT.to_vec()),
-            Just(b"\x1b]7501;state=done\x18".to_vec()),
-            Just(b"\x1b]partial\x1b".to_vec()),
-            Just(b"\x1b\0c".to_vec()),
-        ], 0..20),
-        size in 1usize..64,
-    ) {
-        let input = parts.concat();
-        let expected = observe(&[&input], false);
-        prop_assert_eq!(&expected.bytes, &input);
-        let chunks: Vec<_> = input.chunks(size).collect();
-        prop_assert_eq!(observe(&chunks, true), expected);
-    }
+#[hegel::test]
+fn arbitrary_bytes_survive_chunking_and_pauses(tc: TestCase) {
+    let parts = tc.draw(
+        gs::vecs(hegel::one_of![
+            gs::binary().max_size(127),
+            gs::just(REPORT.to_vec()),
+            gs::just(b"\x1b]7501;state=done\x18".to_vec()),
+            gs::just(b"\x1b]partial\x1b".to_vec()),
+            gs::just(b"\x1b\0c".to_vec()),
+        ])
+        .max_size(19),
+    );
+    let size = tc.draw(gs::integers::<usize>().min_value(1).max_value(63));
+    let input = parts.concat();
+    let expected = observe(&[&input], false);
+    assert_eq!(&expected.bytes, &input);
+    let chunks: Vec<_> = input.chunks(size).collect();
+    assert_eq!(observe(&chunks, true), expected);
 }

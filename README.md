@@ -75,62 +75,14 @@ its own storage during construction with the optional `alloc` feature.
 
 ## Try the examples
 
-From a checkout, I'd start with the interactive TUI:
-
-```sh
-cargo run -p osc7501-rs --example tui
-```
-
-It simulates a release with three tasks, approval prompts, failures, and
-retries. You can see the reports and the builder calls that produce them.
-Press `s` to start and `q` to quit; the on-screen help lists the other controls.
-Use a terminal of at least 80 columns and 24 rows. Unset `NO_COLOR` for colors.
-
-The TUI sends real OSC 7501 reports. You can use the playground without
-protocol support, but a supporting terminal can also display those reports.
-
-Other examples cover different uses:
-
-- [Terminal host](crates/osc7501-store/README.md#run-a-terminal-host-example):
-  run `cargo run -p osc7501-rs --example host --features store-alloc` to see reports
-  parsed and stored. The inspector shows what the host keeps after updates
-  and process exit. Add `-- --plain` for a text trace.
-- [Text demo](crates/osc7501/examples/demo.rs):
-  run `cargo run -p osc7501-rs --example demo` for a short, paced release
-  simulation. Pipe its output for a plain trace without pauses.
-- [Terminal stream](crates/osc7501-parser/README.md#observe-a-terminal-stream):
-  forward a recording unchanged while observing reports with VT framing,
-  cancellation, and access to the original frame bytes.
-- [Record observer](crates/osc7501-store/README.md#observe-record-changes):
-  keep an owned view in sync across reports and terminal lifecycle events.
-
-## Working on the code
-
-The checkout uses stable Rust. Install
-[cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/)
-to run the tests. From the repository root, run the workspace tests and the
-documentation examples:
-
-```sh
-cargo nextest run --workspace --all-targets --all-features --locked
-cargo test --workspace --doc --all-features --locked
-```
-
-`--all-features` includes the optional store integration. When changing an
-interactive example, run it in a terminal too: tests cannot tell you whether
-the screen is useful.
-
-Before opening a pull request, check formatting and Clippy:
-
-```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-```
-
-[CI](.github/workflows/ci.yml) defines the full check matrix: default and all
-features on Rust 1.88 and stable across Linux, macOS, and Windows. It also
-checks documentation, dependencies, and the parser and store without `std`.
+| Example | What it shows |
+| --- | --- |
+| [Release playground](crates/osc7501/examples/tui.rs) | Task progress, approval prompts, failures, and retries |
+| [Terminal host](crates/osc7501/examples/host.rs) | Reports parsed and stored for a terminal display |
+| [Text demo](crates/osc7501/examples/demo.rs) | A short release simulation with plain output when piped |
+| [Terminal stream](crates/osc7501-parser/examples/terminal_stream.rs) | Observe reports while forwarding the original bytes |
+| [Record observer](crates/osc7501-store/examples/observe.rs) | Keep an owned view in sync with record changes |
 
 For more context, see the [protocol notes](docs/protocol.md),
-[design decisions](docs/design.md), [performance measurements](docs/performance.md),
-and [release procedure](docs/releasing.md).
+[design decisions](docs/design.md), and [performance measurements](docs/performance.md).
+Run instructions and contributor checks are in [DEVELOPMENT.md](DEVELOPMENT.md).
