@@ -99,6 +99,8 @@ for debug-build copies and stack-overflow handling.
 
 Both borrowed and owned stores completed the macOS workload in debug and release
 with the 64 KiB stack. Owned construction also ran on that stack.
+On 2026-10-23, both stores also completed the workload in Linux x86-64 containers
+with Rust 1.88.0 and 1.99.1, in debug and release, including change reporting.
 Using the recorded layouts, slots, metadata, decoder, and the entire configured
 stack total 704552 bytes with 64 KiB, or 770088 bytes with 128 KiB. Both fit the
 1,000,000-byte library budget. Enabling `alloc` adds eight bytes to these totals.
@@ -113,6 +115,9 @@ removals with surviving descendants. Change detection adds a fixed stack table
 of effective apps; record storage does not grow. The new methods allocate
 nothing during these operations. The bounded-stack tests include this table.
 The named-scratch totals above describe the plain API without change reporting.
+
+App snapshots use zero-padded bytes without a separate length. Text is decoded
+directly into prepared records to limit temporary stack copies in debug builds.
 
 ## Recheck resource use
 

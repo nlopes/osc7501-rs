@@ -2,7 +2,7 @@
 
 use osc7501_store::{
     Change, Error, Slot, Store,
-    parser::{self, Event, RecordId, Report, parse_body},
+    parser::{self, Event, MAX_APP, RecordId, Report, parse_body},
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -92,6 +92,28 @@ fn matching_app_values_do_not_notify_descendants_when_source_changes() -> TestRe
     let mut changes = Vec::new();
     store.on_prompt_with_changes(|change| receive(&mut changes, change));
     assert_eq!(changes, vec![Seen::Remove("a".into())]);
+    Ok(())
+}
+
+#[test]
+fn inherited_app_changes_distinguish_prefixes_and_maximum_lengths() -> TestResult {
+    let mut slots = [const { Slot::EMPTY }; 2];
+    let mut store = Store::from_slots(&mut slots)?;
+    apply(&mut store, b"state=done:id=child")?;
+    let maximum = "a".repeat(MAX_APP);
+    let shorter = "a".repeat(MAX_APP - 1);
+    for app in ["a", "ab", "a", &maximum, &shorter, &maximum] {
+        let body = format!("state=idle:app={app}");
+        assert_eq!(
+            apply(&mut store, body.as_bytes())?,
+            vec![set("", Some(app)), set("child", Some(app))]
+        );
+        assert_eq!(apply(&mut store, body.as_bytes())?, []);
+    }
+    assert_eq!(
+        apply(&mut store, b"state=idle")?,
+        vec![set("", None), set("child", None)]
+    );
     Ok(())
 }
 

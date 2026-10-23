@@ -24,10 +24,11 @@ pub enum Change<'a> {
     Remove(Record<'a>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 struct AppSnapshot {
+    // App ids cannot contain NUL (0x00). Zero-padding lets us compare the full
+    // buffers without storing each id's length.
     bytes: [u8; MAX_APP],
-    length: usize,
 }
 
 impl AppSnapshot {
@@ -35,14 +36,13 @@ impl AppSnapshot {
         let value = app.as_str().as_bytes();
         let mut snapshot = Self {
             bytes: [0; MAX_APP],
-            length: value.len(),
         };
         snapshot.bytes[..value.len()].copy_from_slice(value);
         snapshot
     }
 
     fn matches(&self, app: AppId<'_>) -> bool {
-        self.bytes[..self.length] == *app.as_str().as_bytes()
+        self == &Self::new(app)
     }
 }
 

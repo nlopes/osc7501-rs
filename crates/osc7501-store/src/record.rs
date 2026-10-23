@@ -10,6 +10,11 @@ struct Text<const N: usize> {
 }
 
 impl<const N: usize> Text<N> {
+    const EMPTY: Self = Self {
+        bytes: [0; N],
+        length: 0,
+    };
+
     fn copy(value: &str) -> Result<Self, Error> {
         let mut text = Self {
             bytes: [0; N],
@@ -22,13 +27,10 @@ impl<const N: usize> Text<N> {
         Ok(text)
     }
 
-    fn decode(value: EncodedText<'_>) -> Result<Self, Error> {
-        let mut text = Self {
-            bytes: [0; N],
-            length: value.decoded_len(),
-        };
-        value.decode_into(&mut text.bytes)?;
-        Ok(text)
+    fn decode(&mut self, value: EncodedText<'_>) -> Result<(), Error> {
+        value.decode_into(&mut self.bytes)?;
+        self.length = value.decoded_len();
+        Ok(())
     }
 
     fn as_str(&self) -> Option<&str> {
@@ -49,18 +51,26 @@ pub(crate) struct StoredRecord {
 
 impl StoredRecord {
     pub(crate) fn prepare(state: State, report: Report<'_>) -> Result<Self, Error> {
-        Ok(Self {
+        let mut prepared = Self {
             state,
             id: report.id().map(|id| Text::copy(id.as_str())).transpose()?,
             app: report
                 .app()
                 .map(|app| Text::copy(app.as_str()))
                 .transpose()?,
-            title: report.title().map(Text::decode).transpose()?,
-            message: report.message().map(Text::decode).transpose()?,
+            title: None,
+            message: None,
             kind: report.kind(),
             progress: report.progress(),
-        })
+        };
+        // Decode into the prepared record to avoid large intermediate text copies.
+        if let Some(title) = report.title() {
+            prepared.title.insert(Text::EMPTY).decode(title)?;
+        }
+        if let Some(message) = report.message() {
+            prepared.message.insert(Text::EMPTY).decode(message)?;
+        }
+        Ok(prepared)
     }
 
     pub(crate) fn matches_id(&self, id: Option<&str>) -> bool {
